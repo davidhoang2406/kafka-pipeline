@@ -22,7 +22,7 @@ def to_ts(v) -> str:
         s = v.isoformat()
     else:
         s = str(v)
-    # Bare date "YYYY-MM-DD" → add UTC midnight so TimescaleDB accepts it as TIMESTAMPTZ
+    # Bare date "YYYY-MM-DD" → add UTC midnight to produce a full ISO-8601 timestamp
     if len(s) == 10:
         s += "T00:00:00+00:00"
     return s

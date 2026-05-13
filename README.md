@@ -1,6 +1,6 @@
 # Kafka Streaming Pipeline
 
-A real-time data streaming pipeline for Vietnamese stock and cryptocurrency market data, built with Apache Kafka, TimescaleDB, and Apache Flink.
+A real-time data streaming pipeline for Vietnamese stock and cryptocurrency market data, built with Apache Kafka, MinIO (Parquet), and Apache Flink.
 
 ## Overview
 
@@ -8,7 +8,7 @@ Converts pull-based market APIs into a continuous push pipeline — any number o
 
 ```
 vnstock API  ──┐
-               ├──► Producers ──► Kafka ──► StorageConsumer ──► TimescaleDB
+               ├──► Producers ──► Kafka ──► StorageConsumer ──► MinIO (Parquet)
 Crypto API   ──┘                       └──► Flink Jobs ──► Alerts / Reports
 ```
 
@@ -17,7 +17,7 @@ Crypto API   ──┘                       └──► Flink Jobs ──► A
 | Layer | Technology |
 |---|---|
 | Message broker | Apache Kafka 4.0 (KRaft, no ZooKeeper) |
-| Time-series DB | TimescaleDB (PostgreSQL 16) |
+| Object storage | MinIO (S3-compatible, Parquet files) |
 | Stream processing | Apache Flink 2.0 + PyFlink |
 | Stock data | vnstock (Vietnamese equities) |
 | Crypto data | CCXT (Binance) |
@@ -67,7 +67,7 @@ cp .env.example .env
 make install
 ```
 
-`make install` asks which infrastructure to start (Kafka, TimescaleDB, Flink), then handles Docker builds, schema migration, and topic creation automatically.
+`make install` asks which infrastructure to start (Kafka, MinIO, Flink), then handles Docker builds, bucket creation, and topic creation automatically.
 
 ## Running the Pipeline
 
@@ -81,7 +81,7 @@ python main.py crypto-price-producer    # Crypto prices → Kafka (every 60 s)
 python main.py crypto-ohlcv-producer    # Daily crypto OHLCV → Kafka
 
 # Consumers
-python main.py storage-consumer         # Kafka → TimescaleDB
+python main.py storage-consumer         # Kafka → MinIO (Parquet)
 python main.py alert-consumer           # Real-time price threshold alerts
 
 # Flink job (requires Flink containers running)
@@ -118,6 +118,7 @@ Alert rules are configured in `config/alerts.json`:
 | Service | URL |
 |---|---|
 | Kafka UI (topic browser) | http://localhost:8080 |
+| MinIO Web Console | http://localhost:9001 |
 | Flink Web UI | http://localhost:8081 |
 
 ## Analysis Reports
@@ -146,7 +147,7 @@ make test-integration   # Integration tests (Docker must be running)
 ├── analysis/               # PyFlink streaming jobs
 ├── schemas/                # Shared message envelope builder
 ├── config/                 # Symbols, alert rules, screener thresholds
-├── db/                     # TimescaleDB schema
+├── db/                     # MinIO bucket initialisation (init_minio.py)
 ├── tests/                  # Unit + integration tests
 ├── design/                 # Architecture diagram and design document
 ├── docker-compose.yml
@@ -158,10 +159,10 @@ make test-integration   # Integration tests (Docker must be running)
 
 | Phase | What was built |
 |---|---|
-| 1 | Docker Compose setup, TimescaleDB schema |
+| 1 | Docker Compose setup, MinIO bucket, Kafka topics |
 | 2 | Smoke producer + consumer |
 | 3 | `price_producer.py` — vnstock polling loop |
-| 4 | `storage_consumer.py` — Kafka → TimescaleDB |
+| 4 | `storage_consumer.py` — Kafka → MinIO (partitioned Parquet) |
 | 5 | `alert_consumer.py` — threshold rules |
 | 6 | `ohlcv_producer.py` — daily OHLCV + financials |
 | 7 | Crypto producers (CCXT) |

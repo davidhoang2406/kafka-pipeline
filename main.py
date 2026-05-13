@@ -11,7 +11,7 @@ def main():
     sub.add_parser("ohlcv-producer",        help="Fetch daily OHLCV history → Kafka")
     sub.add_parser("crypto-price-producer", help="Poll crypto exchange prices → Kafka (every 60 s)")
     sub.add_parser("crypto-ohlcv-producer", help="Fetch crypto daily OHLCV → Kafka")
-    sub.add_parser("storage-consumer",      help="Consume all topics and write to TimescaleDB")
+    sub.add_parser("storage-consumer",      help="Consume all topics and write to MinIO as Parquet")
     sub.add_parser("alert-consumer",        help="Consume price topic and fire threshold alerts")
     sub.add_parser("flink-alert",           help="[Phase 8] Flink DataStream job: price alerts via KeyedProcessFunction")
     sub.add_parser("technical",             help="Run technical analysis report (SMA/RSI/MACD/BB)")

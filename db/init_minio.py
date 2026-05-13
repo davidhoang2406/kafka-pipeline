@@ -1,5 +1,5 @@
 # Creates the market-data bucket in MinIO (safe to re-run).
-# Run once after `docker compose up -d minio` to initialise storage.
+# Run once after `docker compose up -d minio` to initialize storage.
 import os
 
 import boto3

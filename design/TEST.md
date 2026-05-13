@@ -9,7 +9,7 @@ Tests are split by external dependency:
 | Tier | Marker | Requires | Speed |
 |---|---|---|---|
 | **Unit** | `@pytest.mark.unit` | Nothing (pure Python) | < 1 s total |
-| **Integration** | `@pytest.mark.integration` | Docker Compose up, Kafka + TimescaleDB healthy | Seconds–minutes |
+| **Integration** | `@pytest.mark.integration` | Docker Compose up, Kafka + MinIO healthy | Seconds–minutes |
 
 ## Running tests
 
@@ -28,14 +28,14 @@ Tests are split by external dependency:
 
 ```
 tests/
-├── conftest.py                  # shared fixtures (DB connection, Kafka producer/consumer)
+├── conftest.py                  # shared fixtures (MinIO s3_client, Kafka producer/consumer)
 ├── unit/
 │   ├── test_message.py          # build_envelope
 │   ├── test_coerce.py           # _coerce_float / _coerce_int / _to_ts
 │   ├── test_alert_rules.py      # _check() — the core alert logic
-│   └── test_storage_routes.py   # _ROUTES extractors in storage_consumer
+│   └── test_storage_routes.py   # _EXTRACTORS in storage_consumer
 └── integration/
-    ├── test_price_pipeline.py   # produce → Kafka → consume → verify
+    ├── test_price_pipeline.py   # produce → Kafka → _Buffer → MinIO → verify
     ├── test_ohlcv_pipeline.py   # ohlcv bar round-trip
     └── test_alert_pipeline.py   # threshold triggers end-to-end
 ```
@@ -46,7 +46,7 @@ tests/
 [pytest]
 markers =
     unit: no external dependencies
-    integration: requires Docker Compose (Kafka + TimescaleDB)
+    integration: requires Docker Compose (Kafka + MinIO)
 ```
 
 ---
@@ -121,37 +121,40 @@ def test_wildcard_no_trigger(capsys):
 
 ### `tests/unit/test_storage_routes.py` — row extractor lambdas
 
-Each `_ROUTES` extractor is a pure function: message dict → DB row tuple. Verify the column order matches the SQL.
+Each `_EXTRACTORS` extractor is a pure function: message dict → row dict. Verify field names and values.
 
 | Test | Event type | Checks |
 |---|---|---|
-| `test_price_snapshot_extractor` | `price.snapshot` | tuple[2] is symbol, tuple[4] is price |
-| `test_ohlcv_bar_extractor` | `ohlcv.bar` | tuple[3] is open, tuple[6] is close |
-| `test_financials_report_extractor` | `financials.report` | tuple[0] is report_date string |
-| `test_unknown_event_type_ignored` | `"unknown"` | `buf.add()` does not append any row |
+| `test_price_snapshot_extractor` | `price.snapshot` | `symbol` and `price` fields present with correct values |
+| `test_ohlcv_bar_extractor` | `ohlcv.bar` | `open`, `close` fields present |
+| `test_financials_report_extractor` | `financials.report` | `report_date` field present |
+| `test_unknown_event_type_ignored` | `"unknown"` | `buf.add()` does not write any row |
 
 ---
 
 ## Integration test cases
 
 All integration tests use a shared `conftest.py` fixture that:
-1. Verifies Kafka and TimescaleDB are reachable (skips with `pytest.skip` if not)
-2. Creates a temporary Kafka topic and consumer group per test
-3. Wraps DB operations in a transaction that is rolled back after each test
+1. Verifies Kafka and MinIO are reachable (skips with `pytest.skip` if not)
+2. Creates a boto3 `s3_client` pointed at the local MinIO instance
+3. Cleans up all test objects (keyed with `symbol=__TEST__`) after each test
 
 ### `tests/integration/test_price_pipeline.py`
 
 | Test | Steps | Assert |
 |---|---|---|
-| `test_price_snapshot_round_trip` | Produce one `price.snapshot` → run StorageConsumer for 15 s → query DB | Row exists in `price_snapshots` with correct symbol and price |
-| `test_duplicate_message_idempotent` | Produce same message twice → run consumer | Exactly 1 row in DB (ON CONFLICT DO NOTHING) |
+| `test_price_snapshot_written_to_minio` | Build a `price.snapshot` msg → `_Buffer.add()` → `_Buffer.flush()` | Object exists in MinIO under `price.snapshot/symbol=__TEST__/` |
+| `test_parquet_partition_path_structure` | Same flush | Key matches `price.snapshot/symbol=.../date=.../part-*.parquet` |
+| `test_extractor_produces_correct_fields` | Call `_EXTRACTORS["price.snapshot"]` directly | Row dict has `symbol`, `price`, `pct_change` |
 | `test_consumer_group_isolation` | Produce 1 msg → two consumers in different groups each read it | Both consumers receive the message |
 
 ### `tests/integration/test_ohlcv_pipeline.py`
 
 | Test | Steps | Assert |
 |---|---|---|
-| `test_ohlcv_bar_round_trip` | Produce `ohlcv.bar` with a past trading date as timestamp | Row in `ohlcv_daily` with correct `time` column (not insertion time) |
+| `test_ohlcv_bar_uses_trading_date_not_insertion_time` | Build `ohlcv.bar` with a past trading date → flush | Object key contains the trading date, not today's date |
+| `test_ohlcv_parquet_schema` | Flush one bar → read back with pyarrow | Schema has `open`, `high`, `low`, `close`, `volume` columns |
+| `test_ohlcv_extractor_fields` | Call `_EXTRACTORS["ohlcv.bar"]` directly | Row dict has all OHLCV fields |
 
 ### `tests/integration/test_alert_pipeline.py`
 

@@ -106,7 +106,7 @@ objs = s3.list_objects_v2(Bucket=bucket).get('Contents', []); \
 [s3.delete_object(Bucket=bucket, Key=o['Key']) for o in objs]; \
 print(f'Deleted {len(objs)} objects from {bucket}.')"
 
-run: ## Start all infrastructure containers (Kafka, TimescaleDB, Flink, Kafka UI)
+run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
 	docker compose up -d
 
 # ── Running ───────────────────────────────────────────────────────────────────

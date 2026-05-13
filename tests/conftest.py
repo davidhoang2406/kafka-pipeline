@@ -3,13 +3,16 @@ import os
 import socket
 import uuid
 
-import psycopg2
+import boto3
 import pytest
 from kafka import KafkaProducer
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-TIMESCALE_URL   = os.getenv("TIMESCALE_URL", "postgresql://postgres:password@localhost:5432/stocks")
-TEST_SYMBOL     = "__TEST__"
+KAFKA_BOOTSTRAP  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",    "http://localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY",  "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY",  "minioadmin")
+MINIO_BUCKET     = os.getenv("MINIO_BUCKET",       "market-data")
+TEST_SYMBOL      = "__TEST__"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -23,10 +26,10 @@ def _kafka_reachable() -> bool:
         return False
 
 
-def _db_reachable() -> bool:
+def _minio_reachable() -> bool:
     try:
-        conn = psycopg2.connect(TIMESCALE_URL)
-        conn.close()
+        import urllib.request
+        urllib.request.urlopen(f"{MINIO_ENDPOINT}/minio/health/live", timeout=2)
         return True
     except Exception:
         return False
@@ -55,17 +58,23 @@ def kafka_producer(kafka_bootstrap):
 
 
 @pytest.fixture
-def db_conn():
-    if not _db_reachable():
-        pytest.skip("TimescaleDB not reachable — run `docker compose up -d` first")
-    conn = psycopg2.connect(TIMESCALE_URL)
-    yield conn
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM price_snapshots WHERE symbol = %s", (TEST_SYMBOL,))
-        cur.execute("DELETE FROM ohlcv_daily    WHERE symbol = %s", (TEST_SYMBOL,))
-        cur.execute("DELETE FROM financials      WHERE symbol = %s", (TEST_SYMBOL,))
-    conn.commit()
-    conn.close()
+def s3_client():
+    if not _minio_reachable():
+        pytest.skip("MinIO not reachable — run `docker compose up -d` first")
+    client = boto3.client(
+        "s3",
+        endpoint_url=MINIO_ENDPOINT,
+        aws_access_key_id=MINIO_ACCESS_KEY,
+        aws_secret_access_key=MINIO_SECRET_KEY,
+        region_name="us-east-1",
+    )
+    yield client
+    # Cleanup: delete all test objects written by this test run
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=MINIO_BUCKET):
+        for obj in page.get("Contents", []):
+            if f"symbol={TEST_SYMBOL}" in obj["Key"]:
+                client.delete_object(Bucket=MINIO_BUCKET, Key=obj["Key"])
 
 
 @pytest.fixture

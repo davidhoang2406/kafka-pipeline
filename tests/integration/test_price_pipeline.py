@@ -1,72 +1,83 @@
+import io
 import json
 import uuid
 
-import psycopg2.extras
+import pyarrow.parquet as pq
 import pytest
 from kafka import KafkaConsumer
 
-from consumers.storage_consumer import _ROUTES
+from consumers.storage_consumer import _Buffer, _EXTRACTORS
 from schemas.message import build_envelope
-from tests.conftest import TEST_SYMBOL
+from tests.conftest import MINIO_BUCKET, TEST_SYMBOL
 
-TOPIC = "stock.price.realtime"
-FIXED_TS_1 = "2000-01-01T08:00:00+00:00"
-FIXED_TS_2 = "2000-01-02T08:00:00+00:00"
+TOPIC      = "stock.price.realtime"
+FIXED_DATE = "2000-01-01"
+FIXED_TS   = f"{FIXED_DATE}T08:00:00+00:00"
 
 
-def _price_msg(ts: str, price: float = 12345.0) -> dict:
+def _price_msg(price: float = 12345.0) -> dict:
     return build_envelope(
         "price.snapshot", TEST_SYMBOL, "HOSE",
         {"price": price, "change": 100.0, "pct_change": 0.81,
          "volume": 500_000, "bid": 12300.0, "ask": 12400.0},
-        timestamp=ts,
+        timestamp=FIXED_TS,
     )
 
 
-def _insert(conn, msg: dict) -> None:
-    sql, extractor = _ROUTES["price.snapshot"]
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_values(cur, sql, [extractor(msg)])
-    conn.commit()
+def _read_parquet(s3_client, prefix: str):
+    """Download the first Parquet file under prefix and return a pandas DataFrame."""
+    response = s3_client.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
+    keys = [o["Key"] for o in response.get("Contents", [])]
+    assert keys, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
+    obj = s3_client.get_object(Bucket=MINIO_BUCKET, Key=keys[0])
+    return pq.read_table(io.BytesIO(obj["Body"].read())).to_pandas()
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration
-def test_price_snapshot_round_trip(db_conn):
-    msg = _price_msg(FIXED_TS_1, price=12345.0)
-    _insert(db_conn, msg)
+def test_price_snapshot_written_to_minio(s3_client):
+    """_Buffer should write a Parquet file and the row should be readable back."""
+    msg = _price_msg(price=12345.0)
+    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf.add(msg)
+    buf.flush()
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT price, symbol FROM price_snapshots WHERE symbol = %s AND time = %s",
-            (TEST_SYMBOL, FIXED_TS_1),
-        )
-        row = cur.fetchone()
+    prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
+    df = _read_parquet(s3_client, prefix)
 
-    assert row is not None, "Row not found in price_snapshots after insert"
-    assert float(row[0]) == 12345.0
-    assert row[1] == TEST_SYMBOL
-
-
-@pytest.mark.integration
-def test_duplicate_message_idempotent(db_conn):
-    msg = _price_msg(FIXED_TS_2)
-    _insert(db_conn, msg)
-    _insert(db_conn, msg)   # exact duplicate
-
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM price_snapshots WHERE symbol = %s AND time = %s",
-            (TEST_SYMBOL, FIXED_TS_2),
-        )
-        count = cur.fetchone()[0]
-
-    assert count == 1, "ON CONFLICT DO NOTHING should prevent duplicate rows"
+    row = df[df["symbol"] == TEST_SYMBOL]
+    assert len(row) == 1
+    assert float(row.iloc[0]["price"]) == 12345.0
+    assert row.iloc[0]["exchange"] == "HOSE"
 
 
 @pytest.mark.integration
-def test_consumer_group_isolation(kafka_producer, kafka_bootstrap):
+def test_parquet_partition_path_structure(s3_client):
+    """Parquet files must be stored under the correct partition prefix."""
+    msg = _price_msg()
+    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf.add(msg)
+    buf.flush()
+
+    expected_prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
+    response = s3_client.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=expected_prefix)
+    assert response.get("Contents"), f"Expected objects under {expected_prefix}"
+
+
+@pytest.mark.integration
+def test_extractor_produces_correct_fields():
+    """_EXTRACTORS must map all envelope fields to the Parquet row schema."""
+    msg = _price_msg(price=99999.0)
+    row = _EXTRACTORS["price.snapshot"](msg)
+    assert row["price"] == 99999.0
+    assert row["symbol"] == TEST_SYMBOL
+    assert row["exchange"] == "HOSE"
+    assert row["time"] == FIXED_TS
+
+
+@pytest.mark.integration
+def test_consumer_group_isolation(kafka_producer, kafka_bootstrap, unique_group):
     """Two consumers in different groups each receive the same message."""
     test_id = str(uuid.uuid4())
     msg = build_envelope(
@@ -95,6 +106,5 @@ def test_consumer_group_isolation(kafka_producer, kafka_bootstrap):
 
     group_a = f"test-a-{uuid.uuid4().hex[:8]}"
     group_b = f"test-b-{uuid.uuid4().hex[:8]}"
-
     assert consume_one(group_a) is not None, "Group A did not receive the message"
     assert consume_one(group_b) is not None, "Group B did not receive the message"
