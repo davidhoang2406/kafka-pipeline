@@ -1,0 +1,220 @@
+<mxfile host="drawio-plugin" modified="2026-05-13T00:00:00.000Z" agent="Mozilla/5.0" version="22.1.22" type="embed">
+  <diagram name="Stock &amp; Crypto Pipeline" id="stock-arch-v4">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ── Background containers ── -->
+        <mxCell id="bg_docker" value="Docker Compose" style="rounded=1;fillColor=none;strokeColor=#aaaaaa;strokeWidth=1;dashed=1;dashPattern=8 4;fontStyle=2;fontSize=10;fontColor=#888888;verticalAlign=bottom;align=right;" parent="1" vertex="1">
+          <mxGeometry x="415" y="15" width="1270" height="875" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_stock" value="STOCK PIPELINE  ·  vnstock / KBS" style="rounded=1;fillColor=#f0f4ff;strokeColor=#6c8ebf;strokeWidth=1;fontStyle=1;fontSize=10;fontColor=#003166;verticalAlign=top;align=left;" parent="1" vertex="1">
+          <mxGeometry x="10" y="25" width="725" height="295" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_crypto" value="CRYPTO PIPELINE  ·  CCXT / Binance" style="rounded=1;fillColor=#f1f8e9;strokeColor=#388e3c;strokeWidth=1;fontStyle=1;fontSize=10;fontColor=#1a4d1a;verticalAlign=top;align=left;" parent="1" vertex="1">
+          <mxGeometry x="10" y="330" width="725" height="215" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_kafka" value="APACHE KAFKA 4.0  ·  KRaft (single broker, no ZooKeeper)" style="rounded=1;fillColor=#fffde7;strokeColor=#d6b656;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#614500;verticalAlign=top;align=center;" parent="1" vertex="1">
+          <mxGeometry x="420" y="33" width="300" height="555" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_stocks_db" value="&lt;b&gt;TimescaleDB  ·  stocks&lt;/b&gt;  (port 5432)" style="rounded=1;fillColor=#dae8fc;strokeColor=#6c8ebf;strokeWidth=1;fontSize=11;fontColor=#003166;verticalAlign=top;align=center;" parent="1" vertex="1">
+          <mxGeometry x="975" y="45" width="410" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_crypto_db" value="&lt;b&gt;TimescaleDB  ·  crypto&lt;/b&gt;  (port 5432)" style="rounded=1;fillColor=#dae8fc;strokeColor=#388e3c;strokeWidth=1;fontSize=11;fontColor=#1a4d1a;verticalAlign=top;align=center;" parent="1" vertex="1">
+          <mxGeometry x="975" y="325" width="410" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_flink" value="APACHE FLINK 1.20  ·  Streaming Analysis  (http://localhost:8081)" style="rounded=1;fillColor=#fff3e0;strokeColor=#e65100;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#e65100;verticalAlign=top;align=center;" parent="1" vertex="1">
+          <mxGeometry x="715" y="705" width="810" height="185" as="geometry" />
+        </mxCell>
+
+        <!-- ── Data sources ── -->
+        <mxCell id="vnstock" value="&lt;b&gt;vnstock API&lt;/b&gt;&lt;br&gt;HTTP · KBS source" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="20" y="100" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="crypto_api" value="&lt;b&gt;Crypto Exchange API&lt;/b&gt;&lt;br&gt;CCXT · Binance REST" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="20" y="390" width="185" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ── Stock producers ── -->
+        <mxCell id="pp" value="&lt;b&gt;PriceProducer&lt;/b&gt;&lt;br&gt;polls every 30 s&lt;br&gt;&lt;font color=&#39;#555&#39;&gt;&lt;i&gt;Trading().price_board()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="220" y="58" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="op" value="&lt;b&gt;OHLCVProducer&lt;/b&gt;&lt;br&gt;once daily at market close&lt;br&gt;&lt;font color=&#39;#555&#39;&gt;&lt;i&gt;Quote().history() + Finance()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="220" y="158" width="190" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ── Crypto producers ── -->
+        <mxCell id="crypto_pp" value="&lt;b&gt;CryptoPriceProducer&lt;/b&gt;&lt;br&gt;polls every 60 s&lt;br&gt;&lt;font color=&#39;#555&#39;&gt;&lt;i&gt;exchange.fetch_tickers()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="220" y="350" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="crypto_op" value="&lt;b&gt;CryptoOHLCVProducer&lt;/b&gt;&lt;br&gt;once daily&lt;br&gt;&lt;font color=&#39;#555&#39;&gt;&lt;i&gt;exchange.fetch_ohlcv()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="220" y="450" width="190" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ── Kafka topics ── -->
+        <mxCell id="t1" value="&lt;b&gt;stock.price.realtime&lt;/b&gt;&lt;br&gt;6 partitions · key: symbol&lt;br&gt;&lt;font color=&#39;#7f6000&#39;&gt;live price snapshots&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="430" y="45" width="275" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="t2" value="&lt;b&gt;stock.ohlcv.daily&lt;/b&gt;&lt;br&gt;6 partitions · key: symbol&lt;br&gt;&lt;font color=&#39;#7f6000&#39;&gt;end-of-day OHLCV bars&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="430" y="140" width="275" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="t3" value="&lt;b&gt;stock.financials&lt;/b&gt;&lt;br&gt;3 partitions · key: symbol&lt;br&gt;&lt;font color=&#39;#7f6000&#39;&gt;quarterly financial statements&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="430" y="235" width="275" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="t4" value="&lt;b&gt;crypto.price.realtime&lt;/b&gt;&lt;br&gt;6 partitions · key: pair (BTC-USDT)&lt;br&gt;&lt;font color=&#39;#1a4d1a&#39;&gt;live ticker snapshots&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#388e3c;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="430" y="340" width="275" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="t5" value="&lt;b&gt;crypto.ohlcv.daily&lt;/b&gt;&lt;br&gt;6 partitions · key: pair (BTC-USDT)&lt;br&gt;&lt;font color=&#39;#1a4d1a&#39;&gt;end-of-day OHLCV bars&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#c8e6c9;strokeColor=#388e3c;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="430" y="440" width="275" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="kafkaui" value="&lt;b&gt;Kafka UI&lt;/b&gt;  http://localhost:8080" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#3949ab;fontSize=11;fontStyle=2;" parent="1" vertex="1">
+          <mxGeometry x="430" y="536" width="275" height="42" as="geometry" />
+        </mxCell>
+
+        <!-- ── Storage consumer ── -->
+        <mxCell id="sc" value="&lt;b&gt;StorageConsumer&lt;/b&gt;&lt;br&gt;consumer group: storage&lt;br&gt;batch: 100 rows or 10 s&lt;br&gt;&lt;br&gt;stock.* → stocks DB&lt;br&gt;crypto.* → crypto DB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="720" y="45" width="240" height="545" as="geometry" />
+        </mxCell>
+
+        <!-- ── Stocks DB tables ── -->
+        <mxCell id="tbl1" value="&lt;b&gt;price_snapshots&lt;/b&gt;  (hypertable)&lt;br&gt;time · symbol · exchange · price · pct_change · bid/ask" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="995" y="85" width="370" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl2" value="&lt;b&gt;ohlcv_daily&lt;/b&gt;  (hypertable)&lt;br&gt;time · symbol · exchange · open · high · low · close · vol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="995" y="152" width="370" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl3" value="&lt;b&gt;financials&lt;/b&gt;  (plain table)&lt;br&gt;report_date · symbol · revenue · eps · debt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="995" y="219" width="370" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ── Crypto DB tables ── -->
+        <mxCell id="tbl4" value="&lt;b&gt;price_snapshots&lt;/b&gt;  (hypertable)&lt;br&gt;time · symbol · exchange · price · pct_change · bid/ask" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="995" y="365" width="370" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="tbl5" value="&lt;b&gt;ohlcv_daily&lt;/b&gt;  (hypertable)&lt;br&gt;time · symbol · exchange · open · high · low · close · vol" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#388e3c;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="995" y="432" width="370" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- ── Alert consumer ── -->
+        <mxCell id="ac" value="&lt;b&gt;AlertConsumer&lt;/b&gt;&lt;br&gt;reads: stock.price.realtime&lt;br&gt;consumer group: alerts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="720" y="605" width="240" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="out_alert" value="&lt;b&gt;Console / Telegram&lt;/b&gt;&lt;br&gt;real-time price threshold alerts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce4ec;strokeColor=#c62828;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="975" y="605" width="410" height="75" as="geometry" />
+        </mxCell>
+
+        <!-- ── Flink nodes ── -->
+        <mxCell id="jm" value="&lt;b&gt;JobManager&lt;/b&gt;&lt;br&gt;scheduling &amp; coordination" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcc80;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="735" y="740" width="190" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="tm" value="&lt;b&gt;TaskManager&lt;/b&gt;&lt;br&gt;4 task slots" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcc80;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="945" y="740" width="190" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="fj1" value="&lt;b&gt;PriceAlertJob&lt;/b&gt;&lt;br&gt;reads: stock.price.realtime&lt;br&gt;CEP threshold rules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="735" y="812" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="fj2" value="&lt;b&gt;TechnicalJob&lt;/b&gt;&lt;br&gt;reads: stock.ohlcv.daily&lt;br&gt;sliding SMA / RSI / MACD / BB" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="930" y="812" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="fj3" value="&lt;b&gt;DigestJob&lt;/b&gt;&lt;br&gt;reads: stock.price.realtime&lt;br&gt;tumbling window — top movers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="1125" y="812" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="fj4" value="&lt;b&gt;ScreenerJob&lt;/b&gt;&lt;br&gt;reads: stock.financials + price&lt;br&gt;co-stream join P/E · D/E · EPS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="1320" y="812" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="out_reports" value="&lt;b&gt;reports/&lt;/b&gt;&lt;br&gt;YYYY-MM-DD.txt&lt;br&gt;technical · digest · screener" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="1522" y="812" width="160" height="65" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: sources → producers ── -->
+        <mxCell id="e1" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;" parent="1" source="vnstock" target="pp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;" parent="1" source="vnstock" target="op" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;" parent="1" source="crypto_api" target="crypto_pp" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;" parent="1" source="crypto_api" target="crypto_op" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: producers → topics ── -->
+        <mxCell id="e3" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;fontColor=#614500;fontSize=10;" parent="1" source="pp" target="t1" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;fontColor=#614500;fontSize=10;" parent="1" source="op" target="t2" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;fontColor=#614500;fontSize=10;" parent="1" source="op" target="t3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;fontColor=#1a4d1a;fontSize=10;" parent="1" source="crypto_pp" target="t4" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;fontColor=#1a4d1a;fontSize=10;" parent="1" source="crypto_op" target="t5" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: topics → StorageConsumer ── -->
+        <mxCell id="e10" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t1" target="sc" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t2" target="sc" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t3" target="sc" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t4" target="sc" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t5" target="sc" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: StorageConsumer → DB tables ── -->
+        <mxCell id="e15" value="INSERT" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;fontColor=#003166;fontSize=10;" parent="1" source="sc" target="tbl1" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" value="INSERT" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;fontColor=#003166;fontSize=10;" parent="1" source="sc" target="tbl2" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" value="INSERT" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;fontColor=#003166;fontSize=10;" parent="1" source="sc" target="tbl3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" value="INSERT" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;fontColor=#1a4d1a;fontSize=10;" parent="1" source="sc" target="tbl4" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" value="INSERT" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#388e3c;strokeWidth=2;fontColor=#1a4d1a;fontSize=10;" parent="1" source="sc" target="tbl5" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: AlertConsumer → output ── -->
+        <mxCell id="e25" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;" parent="1" source="ac" target="out_alert" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ── Edges: Flink internal + outputs ── -->
+        <mxCell id="e20" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=1;" parent="1" source="jm" target="tm" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e21" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=2;" parent="1" source="fj1" target="out_reports" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=2;" parent="1" source="fj2" target="out_reports" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=2;" parent="1" source="fj3" target="out_reports" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=2;" parent="1" source="fj4" target="out_reports" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
