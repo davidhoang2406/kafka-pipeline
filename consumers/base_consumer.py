@@ -1,3 +1,6 @@
+# Shared KafkaConsumer wrapper used by all consumers.
+# Handles broker connection, JSON deserialization, and offset management.
+# Use as a context manager: `with BaseConsumer(topics, group_id) as c: c.messages()`.
 import json
 import os
 

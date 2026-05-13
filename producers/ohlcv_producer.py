@@ -1,3 +1,6 @@
+# Fetches end-of-day OHLCV bars and quarterly financial statements from vnstock (VCI source)
+# for all symbols in config/symbols.json, then publishes to `stock.ohlcv.daily` and
+# `stock.financials`. Intended to run once per day (cron or manual trigger).
 import logging
 from datetime import date, timedelta
 from pathlib import Path

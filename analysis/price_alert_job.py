@@ -1,19 +1,8 @@
-"""
-Phase 8 — Flink price alert job.
-
-Concepts introduced:
-  - StreamExecutionEnvironment  : entry point for the DataStream API
-  - KafkaSource                 : Flink-native Kafka connector (vs plain kafka-python)
-  - key_by                      : partition stream by symbol so one task owns all
-                                  events for a given ticker (prerequisite for stateful
-                                  processing in later phases)
-  - KeyedProcessFunction        : per-element logic with access to per-key state and
-                                  timers (state unused here; added in Phase 9)
-
-Run (Docker cluster):
-  make flink-build              # one-time: builds PyFlink image with Kafka JAR
-  make run-flink-alert          # submits job via flink run-python inside the container
-"""
+# Flink streaming job (Phase 8) that reads from stock.price.realtime and
+# crypto.price.realtime, partitions events by symbol via key_by, and evaluates
+# each tick against threshold rules in config/alerts.json using a KeyedProcessFunction.
+# Logs every tick at INFO and prints/logs triggered alerts at WARNING.
+# Must run inside the Flink Docker cluster: make run-flink-alert
 import json
 import logging
 import operator

@@ -1,3 +1,6 @@
+# Polls the vnstock price board (KBS source) for all symbols in config/symbols.json
+# and publishes real-time price snapshots to the `stock.price.realtime` Kafka topic.
+# Runs as a continuous loop at a configurable interval (default: 30 s).
 import logging
 import time
 from pathlib import Path

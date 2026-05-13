@@ -1,3 +1,6 @@
+# Shared KafkaProducer wrapper used by all producers.
+# Handles broker connection, JSON serialization, and partition key encoding.
+# Use as a context manager: `with BaseProducer() as p: p.send(...)`.
 import json
 import os
 

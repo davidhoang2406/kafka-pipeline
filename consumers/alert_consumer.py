@@ -1,3 +1,7 @@
+# Subscribes to stock.price.realtime and crypto.price.realtime and evaluates each
+# price snapshot against threshold rules defined in config/alerts.json.
+# Prints an alert to the console whenever a rule is triggered. Lightweight alternative
+# to the Flink PriceAlertJob — no JVM required, runs directly with Python.
 import json
 import logging
 import operator
