@@ -144,7 +144,7 @@ All integration tests use a shared `conftest.py` fixture that:
 | Test | Steps | Assert |
 |---|---|---|
 | `test_price_snapshot_written_to_minio` | Build a `price.snapshot` msg → `_Buffer.add()` → `_Buffer.flush()` | Object exists in MinIO under `price.snapshot/symbol=__TEST__/` |
-| `test_parquet_partition_path_structure` | Same flush | Key matches `price.snapshot/symbol=.../date=.../part-*.parquet` |
+| `test_avro_partition_path_structure` | Same flush | Key matches `price.snapshot/symbol=.../year=.../month=.../day=.../part-*.avro` |
 | `test_extractor_produces_correct_fields` | Call `_EXTRACTORS["price.snapshot"]` directly | Row dict has `symbol`, `price`, `pct_change` |
 | `test_consumer_group_isolation` | Produce 1 msg → two consumers in different groups each read it | Both consumers receive the message |
 
@@ -153,7 +153,7 @@ All integration tests use a shared `conftest.py` fixture that:
 | Test | Steps | Assert |
 |---|---|---|
 | `test_ohlcv_bar_uses_trading_date_not_insertion_time` | Build `ohlcv.bar` with a past trading date → flush | Object key contains the trading date, not today's date |
-| `test_ohlcv_parquet_schema` | Flush one bar → read back with pyarrow | Schema has `open`, `high`, `low`, `close`, `volume` columns |
+| `test_ohlcv_avro_schema` | Flush one bar → read back with fastavro | Record has `open`, `high`, `low`, `close`, `volume` fields |
 | `test_ohlcv_extractor_fields` | Call `_EXTRACTORS["ohlcv.bar"]` directly | Row dict has all OHLCV fields |
 
 ### `tests/integration/test_alert_pipeline.py`

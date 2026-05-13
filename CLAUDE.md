@@ -46,7 +46,7 @@ All commands are run from the project root with the venv active:
 ```bash
 python main.py price-producer      # poll vnstock every 30 s → Kafka
 python main.py ohlcv-producer      # fetch daily OHLCV → Kafka
-python main.py storage-consumer    # Kafka → MinIO (Parquet)
+python main.py storage-consumer    # Kafka → MinIO (Avro)
 python main.py alert-consumer      # real-time price alerts
 python main.py technical           # analysis report: SMA/RSI/MACD/BB
 python main.py digest              # analysis report: gainers/losers/volume
@@ -77,9 +77,9 @@ Never commit directly to `main`. Always return the PR URL when done.
 
 See `DESIGN.md` for the full design document and `architecture.drawio` for the system diagram (open in app.diagrams.net or the VS Code Draw.io extension).
 
-**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → MinIO (Parquet) → Analysis layer → reports/
+**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → MinIO (Avro) → Analysis layer → reports/
 
-**Storage layout:** `s3://market-data/{event_type}/symbol={symbol}/date={date}/part-{ts}.parquet` — partitioned by event type, symbol, and date. Queryable directly with pandas, DuckDB, or PyArrow Dataset.
+**Storage layout:** `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro` — partitioned by event type, symbol, year, month, and day. Files are deflate-compressed Avro (fastavro).
 
 **Kafka topics:** `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` — all partitioned by stock symbol.
 

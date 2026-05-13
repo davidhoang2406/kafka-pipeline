@@ -56,7 +56,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink)
 uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	@echo "Select services to remove (data is permanently deleted):"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
-	read -p "  MinIO (all stored Parquet data)? [y/n] " m; \
+	read -p "  MinIO (all stored Avro data)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
 	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
@@ -93,7 +93,7 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 minio-init: ## Create the market-data bucket in MinIO (safe to re-run)
 	$(PYTHON) db/init_minio.py
 
-storage-flush: ## Delete all Parquet objects from MinIO (irreversible)
+storage-flush: ## Delete all Avro objects from MinIO (irreversible)
 	@echo "WARNING: this permanently deletes all data in the market-data bucket."
 	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
 	$(PYTHON) db/flush_minio.py
@@ -120,7 +120,7 @@ run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s
 run-crypto-ohlcv-producer:  ## Fetch crypto daily OHLCV → Kafka
 	$(PYTHON) main.py crypto-ohlcv-producer
 
-run-storage-consumer: ## Kafka → MinIO (Parquet)
+run-storage-consumer: ## Kafka → MinIO (Avro)
 	$(PYTHON) main.py storage-consumer
 
 run-alert-consumer:   ## Real-time price threshold alerts

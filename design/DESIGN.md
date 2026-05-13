@@ -26,7 +26,7 @@ The diagram uses a left-to-right landscape layout across four zones:
 |---|---|
 | **Ingestion** | vnstock API → PriceProducer · OHLCVProducer; Crypto Exchange API (CCXT) → CryptoPriceProducer · CryptoOHLCVProducer |
 | **Apache Kafka 4.0** (KRaft) | `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` · `crypto.price.realtime` · `crypto.ohlcv.daily` |
-| **Storage path** | StorageConsumer → MinIO (Parquet: `price.snapshot`, `ohlcv.bar`, `financials.report`) |
+| **Storage path** | StorageConsumer → MinIO (Avro: `price.snapshot`, `ohlcv.bar`, `financials.report`) |
 | **Apache Flink 2.0** | PriceAlertJob · TechnicalJob · DigestJob · ScreenerJob → reports / alerts |
 
 **Arrow key:** solid lines = storage writes; dashed lines = Flink streaming reads from Kafka.
@@ -102,8 +102,8 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 - Subscribes to **all five topics** (stock and crypto)
 - Routes by `event_type` — `price.snapshot`, `ohlcv.bar`, `financials.report` each have a dedicated extractor
 - No special-casing needed: the `exchange` field already distinguishes HOSE rows from BINANCE rows
-- Batches rows in memory (up to 500 or 30 s), then flushes as Snappy-compressed Parquet to MinIO
-- Partition layout: `s3://market-data/{event_type}/symbol={symbol}/date={date}/part-{ts}.parquet`
+- Batches rows in memory (up to 500 or 30 s), then flushes as deflate-compressed Avro to MinIO
+- Partition layout: `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro`
 
 ### `consumers/alert_consumer.py`
 - Subscribes to `stock.price.realtime`
@@ -112,27 +112,27 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 
 ---
 
-## 5a. Storage Schema (MinIO + Parquet)
+## 5a. Storage Schema (MinIO + Avro)
 
-Data lands in a single MinIO bucket (`market-data`) partitioned by event type, symbol, and date. The `exchange` field distinguishes stock venues from crypto venues — no schema changes needed to add new sources.
+Data lands in a single MinIO bucket (`market-data`) partitioned by event type, symbol, year, month, and day. Avro is used because it embeds the schema in each file and is row-oriented — well suited for streaming appends. Files are deflate-compressed via fastavro.
 
 ```
 market-data/
 ├── price.snapshot/
 │   └── symbol=VCB/
-│       └── date=2024-05-12/
-│           └── part-1715510400000.parquet
+│       └── year=2024/month=05/day=12/
+│           └── part-1715510400000.avro
 ├── ohlcv.bar/
 │   └── symbol=BTC-USDT/
-│       └── date=2024-05-12/
-│           └── part-1715510400000.parquet
+│       └── year=2024/month=05/day=12/
+│           └── part-1715510400000.avro
 └── financials.report/
     └── symbol=VCB/
-        └── date=2024-03-31/
-            └── part-1715510400000.parquet
+        └── year=2024/month=03/day=31/
+            └── part-1715510400000.avro
 ```
 
-**Parquet schemas** (defined in `consumers/storage_consumer.py` via PyArrow):
+**Avro schemas** (defined in `consumers/storage_consumer.py` via fastavro):
 
 | Event type | Key columns |
 |---|---|
@@ -227,7 +227,7 @@ Kafka/
 │   └── crypto_ohlcv_producer.py  # CCXT: daily crypto OHLCV
 ├── consumers/
 │   ├── base_consumer.py        # Shared KafkaConsumer setup
-│   ├── storage_consumer.py     # Persist all topics to MinIO (Parquet)
+│   ├── storage_consumer.py     # Persist all topics to MinIO (Avro)
 │   └── alert_consumer.py       # Price threshold alerts (stocks)
 ├── schemas/
 │   └── message.py              # build_envelope() — common JSON wrapper

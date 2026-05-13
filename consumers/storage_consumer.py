@@ -1,6 +1,6 @@
 # Subscribes to all five Kafka topics (stock + crypto) and persists messages to MinIO
-# as partitioned Parquet files (Snappy-compressed).
-# Partition layout: s3://market-data/{event_type}/symbol={symbol}/date={date}/part-{ts}.parquet
+# as partitioned Avro files (deflate-compressed).
+# Partition layout: {event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro
 # Batches writes (up to 500 rows or 30 s) to keep file sizes reasonable.
 import io
 import logging
@@ -8,10 +8,8 @@ import os
 import time
 from collections import defaultdict
 
-import pyarrow as pa
-import pyarrow.parquet as pq
+import fastavro
 from dotenv import load_dotenv
-
 from minio import Minio
 
 from consumers.base_consumer import BaseConsumer
@@ -26,40 +24,49 @@ GROUP_ID       = "storage"
 BATCH_SIZE     = 500   # flush after this many rows total
 FLUSH_INTERVAL = 30    # also flush after this many seconds even if batch isn't full
 
-# ── PyArrow schemas ───────────────────────────────────────────────────────────
+# ── Avro schemas ──────────────────────────────────────────────────────────────
 
 _SCHEMAS = {
-    "price.snapshot": pa.schema([
-        ("time",       pa.string()),
-        ("symbol",     pa.string()),
-        ("exchange",   pa.string()),
-        ("price",      pa.float64()),
-        ("change",     pa.float64()),
-        ("pct_change", pa.float64()),
-        ("volume",     pa.int64()),
-        ("bid",        pa.float64()),
-        ("ask",        pa.float64()),
-    ]),
-    "ohlcv.bar": pa.schema([
-        ("time",     pa.string()),
-        ("symbol",   pa.string()),
-        ("exchange", pa.string()),
-        ("open",     pa.float64()),
-        ("high",     pa.float64()),
-        ("low",      pa.float64()),
-        ("close",    pa.float64()),
-        ("volume",   pa.int64()),
-    ]),
-    "financials.report": pa.schema([
-        ("report_date",  pa.string()),
-        ("symbol",       pa.string()),
-        ("period",       pa.string()),
-        ("revenue",      pa.float64()),
-        ("net_income",   pa.float64()),
-        ("total_assets", pa.float64()),
-        ("total_debt",   pa.float64()),
-        ("eps",          pa.float64()),
-    ]),
+    "price.snapshot": fastavro.parse_schema({
+        "type": "record", "name": "PriceSnapshot",
+        "fields": [
+            {"name": "time",       "type": "string"},
+            {"name": "symbol",     "type": "string"},
+            {"name": "exchange",   "type": "string"},
+            {"name": "price",      "type": "double"},
+            {"name": "change",     "type": "double"},
+            {"name": "pct_change", "type": "double"},
+            {"name": "volume",     "type": "long"},
+            {"name": "bid",        "type": "double"},
+            {"name": "ask",        "type": "double"},
+        ],
+    }),
+    "ohlcv.bar": fastavro.parse_schema({
+        "type": "record", "name": "OhlcvBar",
+        "fields": [
+            {"name": "time",     "type": "string"},
+            {"name": "symbol",   "type": "string"},
+            {"name": "exchange", "type": "string"},
+            {"name": "open",     "type": "double"},
+            {"name": "high",     "type": "double"},
+            {"name": "low",      "type": "double"},
+            {"name": "close",    "type": "double"},
+            {"name": "volume",   "type": "long"},
+        ],
+    }),
+    "financials.report": fastavro.parse_schema({
+        "type": "record", "name": "FinancialsReport",
+        "fields": [
+            {"name": "report_date",  "type": "string"},
+            {"name": "symbol",       "type": "string"},
+            {"name": "period",       "type": "string"},
+            {"name": "revenue",      "type": "double"},
+            {"name": "net_income",   "type": "double"},
+            {"name": "total_assets", "type": "double"},
+            {"name": "total_debt",   "type": "double"},
+            {"name": "eps",          "type": "double"},
+        ],
+    }),
 }
 
 # ── Row extractors ────────────────────────────────────────────────────────────
@@ -115,10 +122,17 @@ _EXTRACTORS = {
 
 # ── Storage buffer ────────────────────────────────────────────────────────────
 
+def _date_parts(date: str) -> tuple[str, str, str]:
+    """Split 'YYYY-MM-DD' into (year, month, day). Returns 'unknown' on bad input."""
+    if len(date) == 10:
+        return date[:4], date[5:7], date[8:10]
+    return "unknown", "unknown", "unknown"
+
+
 class _Buffer:
     """
-    Accumulates rows keyed by (event_type, symbol, date).
-    On flush, writes one Parquet file per key to MinIO.
+    Accumulates rows keyed by (event_type, symbol, year, month, day).
+    On flush, writes one Avro file per key to MinIO.
     """
 
     def __init__(self, client: Minio, bucket: str):
@@ -134,7 +148,8 @@ class _Buffer:
         row    = _EXTRACTORS[event_type](msg)
         symbol = msg.get("symbol", "UNKNOWN")
         date   = msg.get("timestamp", "")[:10] or "unknown"
-        self._rows[(event_type, symbol, date)].append(row)
+        year, month, day = _date_parts(date)
+        self._rows[(event_type, symbol, year, month, day)].append(row)
 
     def total_rows(self) -> int:
         return sum(len(v) for v in self._rows.values())
@@ -151,16 +166,16 @@ class _Buffer:
             return
 
         ts_ms = int(time.time() * 1000)
-        for (event_type, symbol, date), rows in self._rows.items():
-            key    = f"{event_type}/symbol={symbol}/date={date}/part-{ts_ms}.parquet"
+        for (event_type, symbol, year, month, day), rows in self._rows.items():
+            key    = (f"{event_type}/symbol={symbol}"
+                      f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
             schema = _SCHEMAS[event_type]
-            table  = pa.Table.from_pylist(rows, schema=schema)
             buf    = io.BytesIO()
-            pq.write_table(table, buf, compression="snappy")
+            fastavro.writer(buf, schema, rows, codec="deflate")
             data   = buf.getvalue()
             self._client.put_object(
                 self._bucket, key, io.BytesIO(data), len(data),
-                content_type="application/octet-stream",
+                content_type="avro/binary",
             )
             log.info("wrote %3d rows → s3://%s/%s", len(rows), self._bucket, key)
 

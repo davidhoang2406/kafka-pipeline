@@ -2,7 +2,7 @@ import io
 import json
 import uuid
 
-import pyarrow.parquet as pq
+import fastavro
 import pytest
 from kafka import KafkaConsumer
 
@@ -13,6 +13,7 @@ from tests.conftest import MINIO_BUCKET, TEST_SYMBOL
 TOPIC      = "stock.price.realtime"
 FIXED_DATE = "2000-01-01"
 FIXED_TS   = f"{FIXED_DATE}T08:00:00+00:00"
+FIXED_PREFIX = f"price.snapshot/symbol={TEST_SYMBOL}/year=2000/month=01/day=01/"
 
 
 def _price_msg(price: float = 12345.0) -> dict:
@@ -24,13 +25,13 @@ def _price_msg(price: float = 12345.0) -> dict:
     )
 
 
-def _read_parquet(minio_client, prefix: str):
-    """Download the first Parquet file under prefix and return a pandas DataFrame."""
+def _read_avro(minio_client, prefix: str) -> list[dict]:
+    """Download the first Avro file under prefix and return records as a list of dicts."""
     objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=True))
-    assert objects, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
+    assert objects, f"No Avro file found under s3://{MINIO_BUCKET}/{prefix}"
     response = minio_client.get_object(MINIO_BUCKET, objects[0].object_name)
     try:
-        return pq.read_table(io.BytesIO(response.read())).to_pandas()
+        return list(fastavro.reader(io.BytesIO(response.read())))
     finally:
         response.close()
         response.release_conn()
@@ -40,37 +41,33 @@ def _read_parquet(minio_client, prefix: str):
 
 @pytest.mark.integration
 def test_price_snapshot_written_to_minio(minio_client):
-    """_Buffer should write a Parquet file and the row should be readable back."""
+    """_Buffer should write an Avro file and the row should be readable back."""
     msg = _price_msg(price=12345.0)
     buf = _Buffer(minio_client, MINIO_BUCKET)
     buf.add(msg)
     buf.flush()
 
-    prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
-    df = _read_parquet(minio_client, prefix)
-
-    row = df[df["symbol"] == TEST_SYMBOL]
-    assert len(row) == 1
-    assert float(row.iloc[0]["price"]) == 12345.0
-    assert row.iloc[0]["exchange"] == "HOSE"
+    records = _read_avro(minio_client, FIXED_PREFIX)
+    row = next(r for r in records if r["symbol"] == TEST_SYMBOL)
+    assert float(row["price"]) == 12345.0
+    assert row["exchange"] == "HOSE"
 
 
 @pytest.mark.integration
-def test_parquet_partition_path_structure(minio_client):
-    """Parquet files must be stored under the correct partition prefix."""
-    msg = _price_msg()
+def test_avro_partition_path_structure(minio_client):
+    """Avro files must be stored under the correct year/month/day partition prefix."""
     buf = _Buffer(minio_client, MINIO_BUCKET)
-    buf.add(msg)
+    buf.add(_price_msg())
     buf.flush()
 
-    expected_prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
-    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=expected_prefix, recursive=True))
-    assert objects, f"Expected objects under {expected_prefix}"
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=FIXED_PREFIX, recursive=True))
+    assert objects, f"Expected objects under {FIXED_PREFIX}"
+    assert objects[0].object_name.endswith(".avro")
 
 
 @pytest.mark.integration
 def test_extractor_produces_correct_fields():
-    """_EXTRACTORS must map all envelope fields to the Parquet row schema."""
+    """_EXTRACTORS must map all envelope fields to the Avro record schema."""
     msg = _price_msg(price=99999.0)
     row = _EXTRACTORS["price.snapshot"](msg)
     assert row["price"] == 99999.0

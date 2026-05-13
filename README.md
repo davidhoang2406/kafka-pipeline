@@ -1,6 +1,6 @@
 # Kafka Streaming Pipeline
 
-A real-time data streaming pipeline for Vietnamese stock and cryptocurrency market data, built with Apache Kafka, MinIO (Parquet), and Apache Flink.
+A real-time data streaming pipeline for Vietnamese stock and cryptocurrency market data, built with Apache Kafka, MinIO (Avro), and Apache Flink.
 
 ## Overview
 
@@ -8,7 +8,7 @@ Converts pull-based market APIs into a continuous push pipeline — any number o
 
 ```
 vnstock API  ──┐
-               ├──► Producers ──► Kafka ──► StorageConsumer ──► MinIO (Parquet)
+               ├──► Producers ──► Kafka ──► StorageConsumer ──► MinIO (Avro)
 Crypto API   ──┘                       └──► Flink Jobs ──► Alerts / Reports
 ```
 
@@ -17,7 +17,7 @@ Crypto API   ──┘                       └──► Flink Jobs ──► A
 | Layer | Technology |
 |---|---|
 | Message broker | Apache Kafka 4.0 (KRaft, no ZooKeeper) |
-| Object storage | MinIO (S3-compatible, Parquet files) |
+| Object storage | MinIO (S3-compatible, Avro files) |
 | Stream processing | Apache Flink 2.0 + PyFlink |
 | Stock data | vnstock (Vietnamese equities) |
 | Crypto data | CCXT (Binance) |
@@ -81,7 +81,7 @@ python main.py crypto-price-producer    # Crypto prices → Kafka (every 60 s)
 python main.py crypto-ohlcv-producer    # Daily crypto OHLCV → Kafka
 
 # Consumers
-python main.py storage-consumer         # Kafka → MinIO (Parquet)
+python main.py storage-consumer         # Kafka → MinIO (Avro)
 python main.py alert-consumer           # Real-time price threshold alerts
 
 # Flink job (requires Flink containers running)
@@ -162,7 +162,7 @@ make test-integration   # Integration tests (Docker must be running)
 | 1 | Docker Compose setup, MinIO bucket, Kafka topics |
 | 2 | Smoke producer + consumer |
 | 3 | `price_producer.py` — vnstock polling loop |
-| 4 | `storage_consumer.py` — Kafka → MinIO (partitioned Parquet) |
+| 4 | `storage_consumer.py` — Kafka → MinIO (partitioned Avro) |
 | 5 | `alert_consumer.py` — threshold rules |
 | 6 | `ohlcv_producer.py` — daily OHLCV + financials |
 | 7 | Crypto producers (CCXT) |
