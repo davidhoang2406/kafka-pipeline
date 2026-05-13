@@ -24,12 +24,14 @@ The diagram uses a left-to-right landscape layout across four zones:
 
 | Zone | Components |
 |---|---|
-| **Ingestion** | vnstock API → PriceProducer · OHLCVProducer; Crypto Exchange API (CCXT) → CryptoPriceProducer · CryptoOHLCVProducer |
-| **Apache Kafka 4.0** (KRaft) | `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` · `crypto.price.realtime` · `crypto.ohlcv.daily` |
-| **Storage path** | StorageConsumer → MinIO (Avro: `price.snapshot`, `ohlcv.bar`, `financials.report`) |
-| **Apache Flink 2.0** | PriceAlertJob · TechnicalJob · DigestJob · ScreenerJob → reports / alerts |
+| **Streaming ingestion** | vnstock API → PriceProducer; Crypto Exchange API (CCXT) → CryptoPriceProducer |
+| **Batch ingestion** | vnstock API → OHLCVIngestStock; CCXT → OHLCVIngestCrypto — write directly to MinIO, bypass Kafka |
+| **Apache Kafka 4.0** (KRaft) | `stock.price.realtime` · `stock.financials` · `crypto.price.realtime` |
+| **Storage path** | StorageConsumer → MinIO (Avro: `price.snapshot`, `financials.report`); OHLCV batch jobs → MinIO (Avro: `ohlcv.bar`) |
+| **Apache Flink 2.0** (streaming) | PriceAlertJob · VolatilityBurstJob → real-time alerts |
+| **Apache Spark** (batch) | TechnicalJob · FundamentalValuationScreen · HistoricalBacktestingEngine · DataQualityAudit → scheduled reports |
 
-**Arrow key:** solid lines = storage writes; dashed lines = Flink streaming reads from Kafka.
+**Arrow key:** solid lines = storage writes; dashed lines = Flink streaming reads from Kafka; dotted lines = Spark batch reads from MinIO.
 
 ---
 
@@ -38,14 +40,14 @@ The diagram uses a left-to-right landscape layout across four zones:
 | Topic | Partition Key | Retention | Purpose |
 |---|---|---|---|
 | `stock.price.realtime` | stock symbol (e.g. `VCB`) | 1 day | Live price board snapshots (vnstock) |
-| `stock.ohlcv.daily` | stock symbol | 30 days | End-of-day OHLCV bars (vnstock) |
 | `stock.financials` | stock symbol | 90 days | Balance sheet, income statement (vnstock) |
 | `crypto.price.realtime` | trading pair (e.g. `BTC-USDT`) | 1 day | Live ticker snapshots (CCXT) |
-| `crypto.ohlcv.daily` | trading pair | 30 days | End-of-day OHLCV bars (CCXT) |
 
 **Why partition by symbol / pair?** Messages for the same asset always go to the same partition, preserving order and making it cheap for consumers that only care about a subset.
 
 **Why separate topics for stock vs crypto?** Different cadences, different sources, and different compliance/retention requirements. Consumers that only care about stocks can subscribe to `stock.*` without processing crypto noise — and vice versa.
+
+**Why are `stock.ohlcv.daily` and `crypto.ohlcv.daily` not Kafka topics?** End-of-day OHLCV bars are fetched once per day on a cron schedule — the data has a predetermined start and end, not a continuous event stream. Routing daily bars through Kafka would leave the topics idle for 23+ hours between bursts, and the only downstream consumer (TechnicalJob) operates on the full historical bar set rather than reacting to individual ticks. OHLCV data is therefore written directly to MinIO by a batch ingest job, keeping Kafka reserved for genuinely time-sensitive events.
 
 ---
 
@@ -82,10 +84,11 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 - Publishes to `stock.price.realtime` with `source="vnstock/KBS"`
 - Symbol list loaded from `config/symbols.json`
 
-### `producers/ohlcv_producer.py`
+### `producers/ohlcv_producer.py` → relocating to `batch/ohlcv_ingest_stock.py`
 - Runs once daily (triggered by a scheduler or cron)
 - Calls `Quote(symbol, source='VCI').history(...)` and `Finance(symbol).income_statement()` for each symbol
-- Publishes to `stock.ohlcv.daily` and `stock.financials`
+- Writes OHLCV bars **directly to MinIO** as Avro under `ohlcv.bar/` — does not publish to Kafka
+- Publishes quarterly financials to `stock.financials` Kafka topic (still time-relevant for downstream alerts)
 
 ### `producers/crypto_price_producer.py`
 - Polls `exchange.fetch_tickers(symbols)` every N seconds (default 60 s)
@@ -93,15 +96,15 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 - Publishes to `crypto.price.realtime` with `source="ccxt/<exchange>"`
 - Kafka partition key uses `-` instead of `/` in pair names (`BTC-USDT`)
 
-### `producers/crypto_ohlcv_producer.py`
+### `producers/crypto_ohlcv_producer.py` → relocating to `batch/ohlcv_ingest_crypto.py`
 - Runs once daily (triggered by a scheduler or cron)
 - Calls `exchange.fetch_ohlcv(symbol, timeframe='1d', limit=N)` for each pair
-- Publishes to `crypto.ohlcv.daily`
+- Writes OHLCV bars **directly to MinIO** as Avro under `ohlcv.bar/` — does not publish to Kafka
 
 ### `consumers/storage_consumer.py`
-- Subscribes to **all five topics** (stock and crypto)
-- Routes by `event_type` — `price.snapshot`, `ohlcv.bar`, `financials.report` each have a dedicated extractor
-- No special-casing needed: the `exchange` field already distinguishes HOSE rows from BINANCE rows
+- Subscribes to **three topics**: `stock.price.realtime`, `stock.financials`, `crypto.price.realtime`
+- Routes by `event_type` — `price.snapshot` and `financials.report` each have a dedicated extractor
+- `ohlcv.bar` data arrives via batch ingest jobs, not through this consumer
 - Batches rows in memory (up to 500 or 30 s), then flushes as deflate-compressed Avro to MinIO
 - Partition layout: `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro`
 
@@ -144,9 +147,9 @@ Connection settings (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `
 
 ---
 
-## 5b. Analysis Layer — Apache Flink
+## 5b. Streaming Layer — Apache Flink
 
-The analysis layer is built on **Apache Flink 2.0**, a stateful stream-processing engine that reads directly from Kafka topics. Flink jobs process live streams with windowing operators and emit results continuously.
+The streaming layer is built on **Apache Flink 2.0**, a stateful stream-processing engine that reads directly from Kafka topics. All three jobs are latency-sensitive — they lose value if results are delayed beyond seconds.
 
 Flink runs two services in Docker Compose:
 - **JobManager** — coordinates job scheduling, fault tolerance, and checkpointing.
@@ -155,35 +158,73 @@ Flink runs two services in Docker Compose:
 Web UI: http://localhost:8081
 
 ### `PriceAlertJob`
-- **Source:** `stock.price.realtime` (consumer group `flink-alerts`)
+- **Source:** `stock.price.realtime` + `crypto.price.realtime` (consumer group `flink-alerts`)
 - Applies configurable threshold rules from `config/alerts.json` using Flink's `ProcessFunction`
 - **Sink:** console / Telegram
 
-### `TechnicalJob`
-- **Source:** `stock.ohlcv.daily` (consumer group `flink-technical`)
-- Uses a **sliding window** over the last N bars to compute SMA 20/50/200, RSI (14), MACD, Bollinger Bands
-- **Sink:** `reports/technical_YYYY-MM-DD.txt`
-
-### `DigestJob`
-- **Source:** `stock.price.realtime` (consumer group `flink-digest`)
-- Uses a **tumbling window** (one trading session) to rank symbols by `pct_change` and detect volume spikes
-- **Sink:** `reports/digest_YYYY-MM-DD.txt`
-
-### `ScreenerJob`
-- **Sources:** `stock.financials` + `stock.price.realtime` (co-stream join)
-- Computes P/E, EPS, debt-to-equity; applies filter thresholds from `config/screener.json`
-- **Sink:** `reports/screener_YYYY-MM-DD.txt`
+### `VolatilityBurstJob`
+- **Source:** `stock.price.realtime` + `crypto.price.realtime` (consumer group `flink-volatility`)
+- Uses a **sliding window** (e.g. 5 minutes) to track the peak-to-trough price range per symbol; fires an alert when the intra-window range exceeds a configurable threshold (e.g. 3%)
+- Tracks range using `ValueState` — distinct from `PriceAlertJob` which only checks a single tick's `pct_change`
+- **Sink:** console / Telegram
 
 ### Key Flink concepts used
 | Concept | Where applied |
 |---|---|
-| **DataStream API** | all four jobs |
-| **Sliding window** | TechnicalJob — rolling indicator history |
-| **Tumbling window** | DigestJob — session-level aggregation |
-| **Co-stream join** | ScreenerJob — join two Kafka topics by symbol |
-| **ProcessFunction** | PriceAlertJob — fine-grained per-record logic |
-| **Kafka source connector** | all jobs read from Kafka with managed offsets |
+| **DataStream API** | both jobs |
+| **Sliding window** | VolatilityBurstJob — rolling aggregation over recent price ticks |
+| **ProcessFunction** | PriceAlertJob · VolatilityBurstJob — fine-grained per-record and per-window logic |
+| **ValueState** | VolatilityBurstJob — tracks min/max price within each window per symbol |
+| **Kafka source connector** | both jobs read from Kafka with managed offsets |
 | **Consumer groups** | each job has its own group — full copy of every message |
+
+---
+
+## 5c. Batch Layer — Apache Spark
+
+The batch layer is built on **PySpark** and reads the Avro files written to MinIO by the StorageConsumer. Jobs are triggered on a schedule (e.g. nightly or weekly) and are suited to workloads that require full historical data rather than real-time results.
+
+Spark runs in **local mode** (`local[*]`) — no separate cluster needed. It reads MinIO via the S3A connector (`hadoop-aws` + `aws-java-sdk` JARs), treating `s3a://market-data/...` as the data source.
+
+### `OHLCVIngestStock` / `OHLCVIngestCrypto`
+- **Sources:** vnstock `Quote.history()` (stock) · CCXT `fetch_ohlcv()` (crypto)
+- Runs once daily on a cron schedule; fetches the previous day's bars for all configured symbols
+- Writes directly to MinIO as Avro under `ohlcv.bar/` — no Kafka involvement
+- Replaces `producers/ohlcv_producer.py` and `producers/crypto_ohlcv_producer.py`
+
+### `TechnicalJob`
+- **Source:** `ohlcv.bar` Avro partitions in MinIO (read via S3A connector)
+- Reads the configured lookback window of daily bars per symbol (e.g. last 200 days)
+- Computes SMA 20/50/200, RSI (14), MACD, Bollinger Bands using Spark window functions or pandas UDFs
+- Runs nightly after `OHLCVIngestStock` completes
+- **Sink:** `reports/technical_YYYY-MM-DD.txt`
+
+### `FundamentalValuationScreen`
+- **Sources:** `financials.report` + `price.snapshot` Avro partitions in MinIO
+- Joins latest quarterly financials with most recent price per symbol
+- Computes P/E, P/B, debt-to-equity, EPS growth; ranks all symbols by composite score
+- **Sink:** `reports/valuation_YYYY-WW.txt` (weekly)
+
+### `HistoricalBacktestingEngine`
+- **Source:** `ohlcv.bar` Avro partitions in MinIO for a configurable date range
+- Applies a configurable strategy (e.g. SMA crossover, RSI reversal) to each symbol's full price history
+- Computes per-symbol P&L, Sharpe ratio, max drawdown, and win rate
+- **Sink:** `reports/backtest_YYYY-MM-DD.txt`
+
+### `DataQualityAudit`
+- **Source:** all Avro partitions in MinIO (`price.snapshot`, `ohlcv.bar`, `financials.report`)
+- Checks for: missing trading days per symbol, zero or null prices, duplicate timestamps, symbols with stale feeds (last record older than expected cadence)
+- **Sink:** `reports/data_quality_YYYY-MM-DD.txt`
+
+### Key Spark concepts used
+| Concept | Where applied |
+|---|---|
+| **SparkSession (local mode)** | all jobs — no cluster required |
+| **S3A connector** | reads/writes Avro files from MinIO using `s3a://` path |
+| **DataFrame API** | all jobs — filtering, groupBy, join, window functions |
+| **Window functions** | TechnicalJob · FundamentalValuationScreen — rolling indicators and latest-record-per-symbol |
+| **Pandas UDFs** | TechnicalJob · HistoricalBacktestingEngine — per-symbol vectorised computation |
+| **Cross-partition scan** | DataQualityAudit — reads all year/month/day partitions in one pass |
 
 ---
 
@@ -221,10 +262,8 @@ Kafka/
 │   └── screener.json           # Screener filter thresholds
 ├── producers/
 │   ├── base_producer.py        # Shared KafkaProducer setup
-│   ├── price_producer.py       # vnstock: real-time price polling loop
-│   ├── ohlcv_producer.py       # vnstock: daily OHLCV + financials
-│   ├── crypto_price_producer.py  # CCXT: real-time crypto ticker polling
-│   └── crypto_ohlcv_producer.py  # CCXT: daily crypto OHLCV
+│   ├── price_producer.py       # vnstock: real-time price polling loop → Kafka
+│   └── crypto_price_producer.py  # CCXT: real-time crypto ticker polling → Kafka
 ├── consumers/
 │   ├── base_consumer.py        # Shared KafkaConsumer setup
 │   ├── storage_consumer.py     # Persist all topics to MinIO (Avro)
@@ -235,11 +274,15 @@ Kafka/
 │   └── init_minio.py           # Creates the market-data bucket in MinIO
 ├── analysis/
 │   ├── stream/
-│   │   ├── price_alert_job.py  # Flink: CEP threshold alerts
-│   │   └── technical_job.py    # Flink: sliding-window SMA/RSI/MACD/BB
+│   │   ├── price_alert_job.py      # Flink: per-record threshold alerts
+│   │   └── volatility_burst_job.py # Flink: intra-window peak-to-trough range alerts
 │   └── batch/
-│       ├── digest.py           # Tumbling-window top movers report
-│       └── screener.py         # Fundamental ratio filter report
+│       ├── ohlcv_ingest_stock.py   # Spark: fetch vnstock OHLCV → MinIO (replaces ohlcv_producer)
+│       ├── ohlcv_ingest_crypto.py  # Spark: fetch CCXT OHLCV → MinIO (replaces crypto_ohlcv_producer)
+│       ├── technical.py            # Spark: SMA/RSI/MACD/BB over MinIO OHLCV history
+│       ├── fundamental_valuation.py # Spark: P/E, D/E ranking from MinIO
+│       ├── backtesting.py           # Spark: strategy simulation over OHLCV history
+│       └── data_quality.py          # Spark: missing data, stale feeds, outlier scan
 ├── reports/                    # Output from analysis layer (gitignored)
 ├── tests/
 │   ├── conftest.py
@@ -257,19 +300,21 @@ Kafka/
 
 ## 8. Implementation Phases
 
-| Phase | Goal | Concept learned |
-|---|---|---|
-| **1** | Docker Compose up (Kafka + MinIO), initialise bucket via `db/init_minio.py` | Docker multi-service setup, MinIO S3-compatible storage |
-| **2** | Produce a hardcoded message, consume and print it | Kafka: topics, producers, consumers |
-| **3** | `price_producer.py` polling vnstock every 5 min | Kafka: producer loop, serialization, partition keys |
-| **4** | `storage_consumer.py` writing to TimescaleDB | Kafka: consumer groups, offset management; DB: batch inserts, idempotency |
-| **5** | `alert_consumer.py` with threshold rules | Kafka: multiple consumer groups on the same topic |
-| **6** | `ohlcv_producer.py` + daily historical data | Kafka: multiple topics with different cadences |
-| **7** | `crypto_price_producer.py` + `crypto_ohlcv_producer.py` (CCXT) | Multi-source ingestion; same envelope schema across sources |
-| **8** | `analysis/price_alert_job.py` — Flink job replaces alert_consumer | Flink: DataStream API, Kafka source connector, ProcessFunction |
-| **9** | `analysis/technical_job.py` — SMA, RSI, MACD, BB via sliding window | Flink: sliding windows, stateful aggregation |
-| **10** | `analysis/digest_job.py` — top movers + volume spikes | Flink: tumbling windows, keyed streams |
-| **11** | `analysis/screener_job.py` — fundamental ratio filter | Flink: co-stream join across two Kafka topics |
+| Phase | Type | Goal | Concept learned |
+|---|---|---|---|
+| **1** | Infra | Docker Compose up (Kafka + MinIO), initialise bucket via `db/init_minio.py` | Docker multi-service setup, MinIO S3-compatible storage |
+| **2** | Infra | Produce a hardcoded message, consume and print it | Kafka: topics, producers, consumers |
+| **3** | Producer | `price_producer.py` polling vnstock every 5 min | Kafka: producer loop, serialization, partition keys |
+| **4** | Consumer | `storage_consumer.py` writing to MinIO as Avro | Kafka: consumer groups, offset management; MinIO: partitioned Avro writes |
+| **5** | Consumer | `alert_consumer.py` with threshold rules | Kafka: multiple consumer groups on the same topic |
+| **6** | Batch ingest | `batch/ohlcv_ingest_stock.py` — fetch vnstock OHLCV + financials; OHLCV → MinIO directly, financials → Kafka | Batch vs streaming trade-off; direct MinIO writes without a Kafka intermediary |
+| **7** | Batch ingest | `batch/ohlcv_ingest_crypto.py` — fetch CCXT OHLCV → MinIO directly | Multi-source batch ingestion; same Avro partition layout as stock OHLCV |
+| **8** | Streaming | `stream/price_alert_job.py` — Flink job replaces alert_consumer | Flink: DataStream API, Kafka source connector, ProcessFunction |
+| **9** | Batch | `batch/technical.py` — SMA, RSI, MACD, BB over MinIO OHLCV history | Spark: S3A connector, pandas UDFs, rolling window functions over partitioned Avro |
+| **10** | Streaming | `stream/volatility_burst_job.py` — intra-window peak-to-trough range alerts | Flink: sliding windows with per-symbol min/max ValueState, multi-topic source |
+| **11** | Batch | `batch/fundamental_valuation.py` — P/E, D/E, EPS ranking across all stocks | Spark: DataFrame joins, `row_number()` window function for latest-record-per-symbol |
+| **12** | Batch | `batch/backtesting.py` — strategy simulation over full OHLCV history | Spark: pandas UDFs, partitioned reads, P&L and Sharpe ratio computation |
+| **13** | Batch | `batch/data_quality.py` — missing days, stale feeds, outlier detection | Spark: cross-partition scan, null checks, groupBy aggregations |
 
 ---
 
