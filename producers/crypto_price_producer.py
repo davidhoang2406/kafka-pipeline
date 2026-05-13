@@ -1,3 +1,6 @@
+# Polls live ticker prices from a crypto exchange via CCXT (default: Binance)
+# for all trading pairs in config/crypto.json, then publishes price snapshots
+# to the `crypto.price.realtime` Kafka topic. Runs as a continuous loop (default: 60 s).
 import logging
 import time
 from pathlib import Path

@@ -1,3 +1,6 @@
+# Fetches end-of-day OHLCV bars from a crypto exchange via CCXT (default: Binance)
+# for all trading pairs in config/crypto.json, then publishes to `crypto.ohlcv.daily`.
+# Intended to run once per day (cron or manual trigger).
 import logging
 from datetime import datetime, timezone
 from pathlib import Path

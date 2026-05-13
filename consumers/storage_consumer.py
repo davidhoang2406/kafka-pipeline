@@ -1,3 +1,6 @@
+# Subscribes to all five Kafka topics (stock + crypto) and persists messages to TimescaleDB.
+# Routes by event_type: price.snapshot → price_snapshots, ohlcv.bar → ohlcv_daily,
+# financials.report → financials. Batches inserts (up to 100 rows or 10 s) for efficiency.
 import logging
 import os
 import time
