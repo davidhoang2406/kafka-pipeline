@@ -26,7 +26,7 @@ The diagram uses a left-to-right landscape layout across four zones:
 |---|---|
 | **Ingestion** | vnstock API → PriceProducer · OHLCVProducer; Crypto Exchange API (CCXT) → CryptoPriceProducer · CryptoOHLCVProducer |
 | **Apache Kafka 4.0** (KRaft) | `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` · `crypto.price.realtime` · `crypto.ohlcv.daily` |
-| **Storage path** | StorageConsumer → TimescaleDB (`price_snapshots`, `ohlcv_daily`, `financials`) |
+| **Storage path** | StorageConsumer → MinIO (Avro: `price.snapshot`, `ohlcv.bar`, `financials.report`) |
 | **Apache Flink 2.0** | PriceAlertJob · TechnicalJob · DigestJob · ScreenerJob → reports / alerts |
 
 **Arrow key:** solid lines = storage writes; dashed lines = Flink streaming reads from Kafka.
@@ -100,9 +100,10 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 
 ### `consumers/storage_consumer.py`
 - Subscribes to **all five topics** (stock and crypto)
-- Routes by `event_type` — `price.snapshot` → `price_snapshots`, `ohlcv.bar` → `ohlcv_daily`, `financials.report` → `financials`
-- No special-casing needed: the `exchange` column already distinguishes HOSE rows from BINANCE rows
-- Uses `psycopg2` with `execute_values` for efficient batch inserts; idempotent via `ON CONFLICT DO NOTHING`
+- Routes by `event_type` — `price.snapshot`, `ohlcv.bar`, `financials.report` each have a dedicated extractor
+- No special-casing needed: the `exchange` field already distinguishes HOSE rows from BINANCE rows
+- Batches rows in memory (up to 500 or 30 s), then flushes as deflate-compressed Avro to MinIO
+- Partition layout: `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro`
 
 ### `consumers/alert_consumer.py`
 - Subscribes to `stock.price.realtime`
@@ -111,55 +112,35 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 
 ---
 
-## 5a. Database Schema (TimescaleDB)
+## 5a. Storage Schema (MinIO + Avro)
 
-Three tables cover all data produced by both pipelines. The `exchange` column distinguishes stock venues from crypto venues — no schema changes needed to add crypto.
+Data lands in a single MinIO bucket (`market-data`) partitioned by event type, symbol, year, month, and day. Avro is used because it embeds the schema in each file and is row-oriented — well suited for streaming appends. Files are deflate-compressed via fastavro.
 
-```sql
--- Hypertable: real-time price snapshots (stock and crypto)
-CREATE TABLE price_snapshots (
-  time        TIMESTAMPTZ   NOT NULL,
-  symbol      TEXT          NOT NULL,
-  exchange    TEXT,                      -- 'HOSE', 'BINANCE', etc.
-  price       NUMERIC,
-  change      NUMERIC,
-  pct_change  NUMERIC,
-  volume      BIGINT,
-  bid         NUMERIC,
-  ask         NUMERIC
-);
-SELECT create_hypertable('price_snapshots', 'time');
-CREATE INDEX ON price_snapshots (symbol, time DESC);
-
--- Hypertable: end-of-day OHLCV bars (stock and crypto)
-CREATE TABLE ohlcv_daily (
-  time        TIMESTAMPTZ   NOT NULL,
-  symbol      TEXT          NOT NULL,
-  exchange    TEXT,
-  open        NUMERIC,
-  high        NUMERIC,
-  low         NUMERIC,
-  close       NUMERIC,
-  volume      BIGINT,
-  UNIQUE (time, symbol)
-);
-SELECT create_hypertable('ohlcv_daily', 'time');
-
--- Regular table: quarterly financial statements (stocks only)
-CREATE TABLE financials (
-  report_date   DATE    NOT NULL,
-  symbol        TEXT    NOT NULL,
-  period        TEXT,
-  revenue       NUMERIC,
-  net_income    NUMERIC,
-  total_assets  NUMERIC,
-  total_debt    NUMERIC,
-  eps           NUMERIC,
-  PRIMARY KEY (report_date, symbol)
-);
+```
+market-data/
+├── price.snapshot/
+│   └── symbol=VCB/
+│       └── year=2024/month=05/day=12/
+│           └── part-1715510400000.avro
+├── ohlcv.bar/
+│   └── symbol=BTC-USDT/
+│       └── year=2024/month=05/day=12/
+│           └── part-1715510400000.avro
+└── financials.report/
+    └── symbol=VCB/
+        └── year=2024/month=03/day=31/
+            └── part-1715510400000.avro
 ```
 
-Schema lives in `db/schema.sql`. Connection settings come from `TIMESCALE_URL` in `.env`.
+**Avro schemas** (defined in `consumers/storage_consumer.py` via fastavro):
+
+| Event type | Key columns |
+|---|---|
+| `price.snapshot` | `time`, `symbol`, `exchange`, `price`, `change`, `pct_change`, `volume`, `bid`, `ask` |
+| `ohlcv.bar` | `time`, `symbol`, `exchange`, `open`, `high`, `low`, `close`, `volume` |
+| `financials.report` | `report_date`, `symbol`, `period`, `revenue`, `net_income`, `total_assets`, `total_debt`, `eps` |
+
+Connection settings (`MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`) come from `.env`. Bucket is initialised by `db/init_minio.py`.
 
 ---
 
@@ -214,16 +195,16 @@ Everything runs locally via Docker Compose — no cloud account needed:
 docker-compose.yml
   └── kafka                (port 9092)   image: apache/kafka:4.0.0  — KRaft mode, no ZooKeeper
   └── kafka-ui             (port 8080)   image: ghcr.io/kafbat/kafka-ui — topic browser
-  └── timescaledb          (port 5432)   image: timescale/timescaledb:latest-pg16
+  └── minio                (port 9000/9001) image: minio/minio — S3-compatible object storage + web console
   └── flink-jobmanager     (port 8081)   image: flink:2.0-java17 — Flink Web UI + job coordinator
   └── flink-taskmanager               — 4 task slots for parallel operator execution
 ```
 
 Kafka 4.0 removed ZooKeeper entirely. The broker runs in **KRaft mode** — single node acts as both `broker` and `controller`.
 
-On first run, apply the TimescaleDB schema:
+On first run, initialise the MinIO bucket:
 ```bash
-psql $TIMESCALE_URL -f db/schema.sql
+python db/init_minio.py
 ```
 
 ---
@@ -246,17 +227,19 @@ Kafka/
 │   └── crypto_ohlcv_producer.py  # CCXT: daily crypto OHLCV
 ├── consumers/
 │   ├── base_consumer.py        # Shared KafkaConsumer setup
-│   ├── storage_consumer.py     # Persist all topics to TimescaleDB
+│   ├── storage_consumer.py     # Persist all topics to MinIO (Avro)
 │   └── alert_consumer.py       # Price threshold alerts (stocks)
 ├── schemas/
 │   └── message.py              # build_envelope() — common JSON wrapper
 ├── db/
-│   └── schema.sql              # TimescaleDB table definitions
+│   └── init_minio.py           # Creates the market-data bucket in MinIO
 ├── analysis/
-│   ├── price_alert_job.py      # Flink: CEP threshold alerts
-│   ├── technical_job.py        # Flink: sliding-window SMA/RSI/MACD/BB
-│   ├── digest_job.py           # Flink: tumbling-window top movers
-│   └── screener_job.py         # Flink: co-stream join, P/E filter
+│   ├── stream/
+│   │   ├── price_alert_job.py  # Flink: CEP threshold alerts
+│   │   └── technical_job.py    # Flink: sliding-window SMA/RSI/MACD/BB
+│   └── batch/
+│       ├── digest.py           # Tumbling-window top movers report
+│       └── screener.py         # Fundamental ratio filter report
 ├── reports/                    # Output from analysis layer (gitignored)
 ├── tests/
 │   ├── conftest.py
@@ -265,7 +248,7 @@ Kafka/
 ├── design/
 │   ├── DESIGN.md               # This document
 │   └── TEST.md                 # Testing strategy
-├── .env                        # TIMESCALE_URL (gitignored)
+├── .env                        # MINIO_* / KAFKA_* settings (gitignored)
 ├── requirements.txt
 └── main.py                     # CLI entry point
 ```
@@ -276,7 +259,7 @@ Kafka/
 
 | Phase | Goal | Concept learned |
 |---|---|---|
-| **1** | Docker Compose up (Kafka + TimescaleDB), apply `db/schema.sql` | Docker multi-service setup, TimescaleDB hypertables |
+| **1** | Docker Compose up (Kafka + MinIO), initialise bucket via `db/init_minio.py` | Docker multi-service setup, MinIO S3-compatible storage |
 | **2** | Produce a hardcoded message, consume and print it | Kafka: topics, producers, consumers |
 | **3** | `price_producer.py` polling vnstock every 5 min | Kafka: producer loop, serialization, partition keys |
 | **4** | `storage_consumer.py` writing to TimescaleDB | Kafka: consumer groups, offset management; DB: batch inserts, idempotency |

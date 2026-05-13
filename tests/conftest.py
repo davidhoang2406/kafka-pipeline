@@ -3,13 +3,16 @@ import os
 import socket
 import uuid
 
-import psycopg2
 import pytest
 from kafka import KafkaProducer
+from minio import Minio
 
-KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-TIMESCALE_URL   = os.getenv("TIMESCALE_URL", "postgresql://postgres:password@localhost:5432/stocks")
-TEST_SYMBOL     = "__TEST__"
+KAFKA_BOOTSTRAP  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",    "http://localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY",  "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY",  "minioadmin")
+MINIO_BUCKET     = os.getenv("MINIO_BUCKET",       "market-data")
+TEST_SYMBOL      = "__TEST__"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -23,13 +26,19 @@ def _kafka_reachable() -> bool:
         return False
 
 
-def _db_reachable() -> bool:
+def _minio_reachable() -> bool:
     try:
-        conn = psycopg2.connect(TIMESCALE_URL)
-        conn.close()
+        import urllib.request
+        urllib.request.urlopen(f"{MINIO_ENDPOINT}/minio/health/live", timeout=2)
         return True
     except Exception:
         return False
+
+
+def _make_minio_client() -> Minio:
+    secure = MINIO_ENDPOINT.startswith("https://")
+    host   = MINIO_ENDPOINT.split("://", 1)[-1]
+    return Minio(host, access_key=MINIO_ACCESS_KEY, secret_key=MINIO_SECRET_KEY, secure=secure)
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
@@ -55,17 +64,15 @@ def kafka_producer(kafka_bootstrap):
 
 
 @pytest.fixture
-def db_conn():
-    if not _db_reachable():
-        pytest.skip("TimescaleDB not reachable — run `docker compose up -d` first")
-    conn = psycopg2.connect(TIMESCALE_URL)
-    yield conn
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM price_snapshots WHERE symbol = %s", (TEST_SYMBOL,))
-        cur.execute("DELETE FROM ohlcv_daily    WHERE symbol = %s", (TEST_SYMBOL,))
-        cur.execute("DELETE FROM financials      WHERE symbol = %s", (TEST_SYMBOL,))
-    conn.commit()
-    conn.close()
+def minio_client():
+    if not _minio_reachable():
+        pytest.skip("MinIO not reachable — run `docker compose up -d` first")
+    client = _make_minio_client()
+    yield client
+    # Cleanup: delete all test objects written by this test run
+    for obj in client.list_objects(MINIO_BUCKET, recursive=True):
+        if f"symbol={TEST_SYMBOL}" in obj.object_name:
+            client.remove_object(MINIO_BUCKET, obj.object_name)
 
 
 @pytest.fixture

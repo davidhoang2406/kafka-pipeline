@@ -1,72 +1,83 @@
+import io
 import json
 import uuid
 
-import psycopg2.extras
+import fastavro
 import pytest
 from kafka import KafkaConsumer
 
-from consumers.storage_consumer import _ROUTES
+from consumers.storage_consumer import _Buffer, _EXTRACTORS
 from schemas.message import build_envelope
-from tests.conftest import TEST_SYMBOL
+from tests.conftest import MINIO_BUCKET, TEST_SYMBOL
 
-TOPIC = "stock.price.realtime"
-FIXED_TS_1 = "2000-01-01T08:00:00+00:00"
-FIXED_TS_2 = "2000-01-02T08:00:00+00:00"
+TOPIC      = "stock.price.realtime"
+FIXED_DATE = "2000-01-01"
+FIXED_TS   = f"{FIXED_DATE}T08:00:00+00:00"
+FIXED_PREFIX = f"price.snapshot/symbol={TEST_SYMBOL}/year=2000/month=01/day=01/"
 
 
-def _price_msg(ts: str, price: float = 12345.0) -> dict:
+def _price_msg(price: float = 12345.0) -> dict:
     return build_envelope(
         "price.snapshot", TEST_SYMBOL, "HOSE",
         {"price": price, "change": 100.0, "pct_change": 0.81,
          "volume": 500_000, "bid": 12300.0, "ask": 12400.0},
-        timestamp=ts,
+        timestamp=FIXED_TS,
     )
 
 
-def _insert(conn, msg: dict) -> None:
-    sql, extractor = _ROUTES["price.snapshot"]
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_values(cur, sql, [extractor(msg)])
-    conn.commit()
+def _read_avro(minio_client, prefix: str) -> list[dict]:
+    """Download the first Avro file under prefix and return records as a list of dicts."""
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=True))
+    assert objects, f"No Avro file found under s3://{MINIO_BUCKET}/{prefix}"
+    response = minio_client.get_object(MINIO_BUCKET, objects[0].object_name)
+    try:
+        return list(fastavro.reader(io.BytesIO(response.read())))
+    finally:
+        response.close()
+        response.release_conn()
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration
-def test_price_snapshot_round_trip(db_conn):
-    msg = _price_msg(FIXED_TS_1, price=12345.0)
-    _insert(db_conn, msg)
+def test_price_snapshot_written_to_minio(minio_client):
+    """_Buffer should write an Avro file and the row should be readable back."""
+    msg = _price_msg(price=12345.0)
+    buf = _Buffer(minio_client, MINIO_BUCKET)
+    buf.add(msg)
+    buf.flush()
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT price, symbol FROM price_snapshots WHERE symbol = %s AND time = %s",
-            (TEST_SYMBOL, FIXED_TS_1),
-        )
-        row = cur.fetchone()
-
-    assert row is not None, "Row not found in price_snapshots after insert"
-    assert float(row[0]) == 12345.0
-    assert row[1] == TEST_SYMBOL
+    records = _read_avro(minio_client, FIXED_PREFIX)
+    row = next(r for r in records if r["symbol"] == TEST_SYMBOL)
+    assert float(row["price"]) == 12345.0
+    assert row["exchange"] == "HOSE"
 
 
 @pytest.mark.integration
-def test_duplicate_message_idempotent(db_conn):
-    msg = _price_msg(FIXED_TS_2)
-    _insert(db_conn, msg)
-    _insert(db_conn, msg)   # exact duplicate
+def test_avro_partition_path_structure(minio_client):
+    """Avro files must be stored under the correct year/month/day partition prefix."""
+    buf = _Buffer(minio_client, MINIO_BUCKET)
+    buf.add(_price_msg())
+    buf.flush()
 
-    with db_conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) FROM price_snapshots WHERE symbol = %s AND time = %s",
-            (TEST_SYMBOL, FIXED_TS_2),
-        )
-        count = cur.fetchone()[0]
-
-    assert count == 1, "ON CONFLICT DO NOTHING should prevent duplicate rows"
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=FIXED_PREFIX, recursive=True))
+    assert objects, f"Expected objects under {FIXED_PREFIX}"
+    assert objects[0].object_name.endswith(".avro")
 
 
 @pytest.mark.integration
-def test_consumer_group_isolation(kafka_producer, kafka_bootstrap):
+def test_extractor_produces_correct_fields():
+    """_EXTRACTORS must map all envelope fields to the Avro record schema."""
+    msg = _price_msg(price=99999.0)
+    row = _EXTRACTORS["price.snapshot"](msg)
+    assert row["price"] == 99999.0
+    assert row["symbol"] == TEST_SYMBOL
+    assert row["exchange"] == "HOSE"
+    assert row["time"] == FIXED_TS
+
+
+@pytest.mark.integration
+def test_consumer_group_isolation(kafka_producer, kafka_bootstrap, unique_group):
     """Two consumers in different groups each receive the same message."""
     test_id = str(uuid.uuid4())
     msg = build_envelope(
@@ -95,6 +106,5 @@ def test_consumer_group_isolation(kafka_producer, kafka_bootstrap):
 
     group_a = f"test-a-{uuid.uuid4().hex[:8]}"
     group_b = f"test-b-{uuid.uuid4().hex[:8]}"
-
     assert consume_one(group_a) is not None, "Group A did not receive the message"
     assert consume_one(group_b) is not None, "Group B did not receive the message"

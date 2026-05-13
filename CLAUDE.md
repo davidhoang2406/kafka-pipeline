@@ -19,20 +19,19 @@ cp .env.example .env
 
 ## Infrastructure
 
-Start Kafka (KRaft, no ZooKeeper) and TimescaleDB:
+Start Kafka (KRaft, no ZooKeeper) and MinIO:
 
 ```bash
 docker compose up -d
 ```
 
-Apply the database schema (run once after first `docker compose up`):
+Create the MinIO bucket (run once after first `docker compose up`):
 
 ```bash
-source .venv/bin/activate
-psql $TIMESCALE_URL -f db/schema.sql
-# or if psql is not installed locally:
-docker exec -i timescaledb psql -U postgres -d stocks < db/schema.sql
+make minio-init
 ```
+
+MinIO Web Console: http://localhost:9001 (user: `minioadmin` / pass: `minioadmin`)
 
 Stop and tear down (data is preserved in Docker volumes):
 
@@ -47,7 +46,7 @@ All commands are run from the project root with the venv active:
 ```bash
 python main.py price-producer      # poll vnstock every 30 s → Kafka
 python main.py ohlcv-producer      # fetch daily OHLCV → Kafka
-python main.py storage-consumer    # Kafka → TimescaleDB
+python main.py storage-consumer    # Kafka → MinIO (Avro)
 python main.py alert-consumer      # real-time price alerts
 python main.py technical           # analysis report: SMA/RSI/MACD/BB
 python main.py digest              # analysis report: gainers/losers/volume
@@ -78,7 +77,9 @@ Never commit directly to `main`. Always return the PR URL when done.
 
 See `DESIGN.md` for the full design document and `architecture.drawio` for the system diagram (open in app.diagrams.net or the VS Code Draw.io extension).
 
-**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → TimescaleDB → Analysis layer → reports/
+**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → MinIO (Avro) → Analysis layer → reports/
+
+**Storage layout:** `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro` — partitioned by event type, symbol, year, month, and day. Files are deflate-compressed Avro (fastavro).
 
 **Kafka topics:** `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` — all partitioned by stock symbol.
 

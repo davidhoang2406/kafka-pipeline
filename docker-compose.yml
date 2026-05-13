@@ -41,23 +41,24 @@ services:
       kafka:
         condition: service_healthy
 
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
-    container_name: timescaledb
+  minio:
+    image: minio/minio:latest
+    container_name: minio
     ports:
-      - "5432:5432"
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console → http://localhost:9001
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: stocks
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
     volumes:
-      - timescale_data:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - minio_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d stocks"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 10s
 
   flink-jobmanager:
     build:
@@ -95,4 +96,4 @@ services:
 
 volumes:
   kafka_data:
-  timescale_data:
+  minio_data:
