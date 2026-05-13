@@ -54,6 +54,26 @@ python main.py digest              # analysis report: gainers/losers/volume
 python main.py screener            # analysis report: P/E, D/E, EPS filter
 ```
 
+## Git Workflow
+
+Every new phase or feature must follow this branch workflow:
+
+1. **Create a feature branch** before writing any code:
+   ```bash
+   git checkout -b feature/<phase-or-feature-name>
+   ```
+2. **Develop and commit** on that branch.
+3. **Push the branch** to origin when done:
+   ```bash
+   git push -u origin feature/<phase-or-feature-name>
+   ```
+4. **Open a PR** targeting `main` using `gh`:
+   ```bash
+   gh pr create --base main --title "..." --body "..."
+   ```
+
+Never commit directly to `main`. Always return the PR URL when done.
+
 ## Architecture
 
 See `DESIGN.md` for the full design document and `architecture.drawio` for the system diagram (open in app.diagrams.net or the VS Code Draw.io extension).
