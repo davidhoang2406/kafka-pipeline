@@ -1,13 +1,16 @@
-# Subscribes to all five Kafka topics (stock + crypto) and persists messages to TimescaleDB.
-# Routes by event_type: price.snapshot → price_snapshots, ohlcv.bar → ohlcv_daily,
-# financials.report → financials. Batches inserts (up to 100 rows or 10 s) for efficiency.
+# Subscribes to all five Kafka topics (stock + crypto) and persists messages to MinIO
+# as partitioned Parquet files (Snappy-compressed).
+# Partition layout: s3://market-data/{event_type}/symbol={symbol}/date={date}/part-{ts}.parquet
+# Batches writes (up to 500 rows or 30 s) to keep file sizes reasonable.
+import io
 import logging
 import os
 import time
 from collections import defaultdict
 
-import psycopg2
-import psycopg2.extras
+import boto3
+import pyarrow as pa
+import pyarrow.parquet as pq
 from dotenv import load_dotenv
 
 from consumers.base_consumer import BaseConsumer
@@ -16,130 +19,169 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-STOCK_TOPICS  = ["stock.price.realtime", "stock.ohlcv.daily", "stock.financials"]
-CRYPTO_TOPICS = ["crypto.price.realtime", "crypto.ohlcv.daily"]
-TOPICS        = STOCK_TOPICS + CRYPTO_TOPICS
-_CRYPTO_TOPIC_SET = set(CRYPTO_TOPICS)
-
+TOPICS         = ["stock.price.realtime", "stock.ohlcv.daily", "stock.financials",
+                  "crypto.price.realtime", "crypto.ohlcv.daily"]
 GROUP_ID       = "storage"
-BATCH_SIZE     = 100   # flush after this many rows across all tables
-FLUSH_INTERVAL = 10    # also flush after this many seconds even if batch isn't full
+BATCH_SIZE     = 500   # flush after this many rows total
+FLUSH_INTERVAL = 30    # also flush after this many seconds even if batch isn't full
 
-# Each entry: (INSERT SQL with %s placeholder, row-extractor lambda)
-_ROUTES = {
-    "price.snapshot": (
-        """INSERT INTO price_snapshots
-               (time, symbol, exchange, price, change, pct_change, volume, bid, ask)
-           VALUES %s
-           ON CONFLICT (time, symbol) DO NOTHING""",
-        lambda m: (
-            m["timestamp"],
-            m["symbol"],
-            m["exchange"],
-            m["payload"].get("price", 0),
-            m["payload"].get("change", 0),
-            m["payload"].get("pct_change", 0),
-            m["payload"].get("volume", 0),
-            m["payload"].get("bid", 0),
-            m["payload"].get("ask", 0),
-        ),
-    ),
-    "ohlcv.bar": (
-        """INSERT INTO ohlcv_daily
-               (time, symbol, exchange, open, high, low, close, volume)
-           VALUES %s
-           ON CONFLICT (time, symbol) DO NOTHING""",
-        lambda m: (
-            m["timestamp"],
-            m["symbol"],
-            m["exchange"],
-            m["payload"].get("open", 0),
-            m["payload"].get("high", 0),
-            m["payload"].get("low", 0),
-            m["payload"].get("close", 0),
-            m["payload"].get("volume", 0),
-        ),
-    ),
-    "financials.report": (
-        """INSERT INTO financials
-               (report_date, symbol, period, revenue, net_income, total_assets, total_debt, eps)
-           VALUES %s
-           ON CONFLICT (report_date, symbol) DO NOTHING""",
-        lambda m: (
-            m["payload"].get("report_date", m["timestamp"][:10]),
-            m["symbol"],
-            m["payload"].get("period"),
-            m["payload"].get("revenue"),
-            m["payload"].get("net_income"),
-            m["payload"].get("total_assets"),
-            m["payload"].get("total_debt"),
-            m["payload"].get("eps"),
-        ),
-    ),
+# ── PyArrow schemas ───────────────────────────────────────────────────────────
+
+_SCHEMAS = {
+    "price.snapshot": pa.schema([
+        ("time",       pa.string()),
+        ("symbol",     pa.string()),
+        ("exchange",   pa.string()),
+        ("price",      pa.float64()),
+        ("change",     pa.float64()),
+        ("pct_change", pa.float64()),
+        ("volume",     pa.int64()),
+        ("bid",        pa.float64()),
+        ("ask",        pa.float64()),
+    ]),
+    "ohlcv.bar": pa.schema([
+        ("time",     pa.string()),
+        ("symbol",   pa.string()),
+        ("exchange", pa.string()),
+        ("open",     pa.float64()),
+        ("high",     pa.float64()),
+        ("low",      pa.float64()),
+        ("close",    pa.float64()),
+        ("volume",   pa.int64()),
+    ]),
+    "financials.report": pa.schema([
+        ("report_date",  pa.string()),
+        ("symbol",       pa.string()),
+        ("period",       pa.string()),
+        ("revenue",      pa.float64()),
+        ("net_income",   pa.float64()),
+        ("total_assets", pa.float64()),
+        ("total_debt",   pa.float64()),
+        ("eps",          pa.float64()),
+    ]),
+}
+
+# ── Row extractors ────────────────────────────────────────────────────────────
+
+def _f(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _i(v) -> int:
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+_EXTRACTORS = {
+    "price.snapshot": lambda m: {
+        "time":       m["timestamp"],
+        "symbol":     m["symbol"],
+        "exchange":   m.get("exchange", ""),
+        "price":      _f(m["payload"].get("price")),
+        "change":     _f(m["payload"].get("change")),
+        "pct_change": _f(m["payload"].get("pct_change")),
+        "volume":     _i(m["payload"].get("volume")),
+        "bid":        _f(m["payload"].get("bid")),
+        "ask":        _f(m["payload"].get("ask")),
+    },
+    "ohlcv.bar": lambda m: {
+        "time":     m["timestamp"],
+        "symbol":   m["symbol"],
+        "exchange": m.get("exchange", ""),
+        "open":     _f(m["payload"].get("open")),
+        "high":     _f(m["payload"].get("high")),
+        "low":      _f(m["payload"].get("low")),
+        "close":    _f(m["payload"].get("close")),
+        "volume":   _i(m["payload"].get("volume")),
+    },
+    "financials.report": lambda m: {
+        "report_date":  m["payload"].get("report_date", m["timestamp"][:10]),
+        "symbol":       m["symbol"],
+        "period":       m["payload"].get("period", ""),
+        "revenue":      _f(m["payload"].get("revenue")),
+        "net_income":   _f(m["payload"].get("net_income")),
+        "total_assets": _f(m["payload"].get("total_assets")),
+        "total_debt":   _f(m["payload"].get("total_debt")),
+        "eps":          _f(m["payload"].get("eps")),
+    },
 }
 
 
-class _Buffer:
-    """Accumulates rows per event_type and batch-inserts them into a TimescaleDB database."""
+# ── Storage buffer ────────────────────────────────────────────────────────────
 
-    def __init__(self, conn, name: str):
-        self._conn = conn
-        self._name = name
-        self._rows: dict[str, list] = defaultdict(list)
+class _Buffer:
+    """
+    Accumulates rows keyed by (event_type, symbol, date).
+    On flush, writes one Parquet file per key to MinIO.
+    """
+
+    def __init__(self, s3, bucket: str):
+        self._s3         = s3
+        self._bucket     = bucket
+        self._rows: dict[tuple, list] = defaultdict(list)
         self._last_flush = time.monotonic()
 
     def add(self, msg: dict) -> None:
         event_type = msg.get("event_type")
-        if event_type not in _ROUTES:
-            log.debug("Skipping unknown event_type=%s", event_type)
+        if event_type not in _EXTRACTORS:
             return
-        _, extractor = _ROUTES[event_type]
-        self._rows[event_type].append(extractor(msg))
+        row    = _EXTRACTORS[event_type](msg)
+        symbol = msg.get("symbol", "UNKNOWN")
+        date   = msg.get("timestamp", "")[:10] or "unknown"
+        self._rows[(event_type, symbol, date)].append(row)
+
+    def total_rows(self) -> int:
+        return sum(len(v) for v in self._rows.values())
 
     def should_flush(self) -> bool:
-        total = sum(len(r) for r in self._rows.values())
-        elapsed = time.monotonic() - self._last_flush
-        return total >= BATCH_SIZE or elapsed >= FLUSH_INTERVAL
+        return (
+            self.total_rows() >= BATCH_SIZE
+            or time.monotonic() - self._last_flush >= FLUSH_INTERVAL
+        )
 
     def flush(self) -> None:
-        counts = {k: len(v) for k, v in self._rows.items() if v}
-        if not counts:
+        if not self._rows:
             self._last_flush = time.monotonic()
             return
 
-        with self._conn.cursor() as cur:
-            for event_type, rows in self._rows.items():
-                if not rows:
-                    continue
-                sql, _ = _ROUTES[event_type]
-                psycopg2.extras.execute_values(cur, sql, rows)
+        ts_ms = int(time.time() * 1000)
+        for (event_type, symbol, date), rows in self._rows.items():
+            key    = f"{event_type}/symbol={symbol}/date={date}/part-{ts_ms}.parquet"
+            schema = _SCHEMAS[event_type]
+            table  = pa.Table.from_pylist(rows, schema=schema)
+            buf    = io.BytesIO()
+            pq.write_table(table, buf, compression="snappy")
+            buf.seek(0)
+            self._s3.put_object(Bucket=self._bucket, Key=key, Body=buf.getvalue())
+            log.info("wrote %3d rows → s3://%s/%s", len(rows), self._bucket, key)
 
-        self._conn.commit()
-        log.info("Flushed → %s | %s", self._name, counts)
         self._rows.clear()
         self._last_flush = time.monotonic()
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 def run() -> None:
-    stock_url  = os.getenv("TIMESCALE_URL",        "postgresql://postgres:password@localhost:5432/stocks")
-    crypto_url = os.getenv("TIMESCALE_CRYPTO_URL", "postgresql://postgres:password@localhost:5432/crypto")
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.getenv("MINIO_ENDPOINT",    "http://localhost:9000"),
+        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+        region_name="us-east-1",
+    )
+    bucket = os.getenv("MINIO_BUCKET", "market-data")
+    buf    = _Buffer(s3, bucket)
 
-    stock_conn  = psycopg2.connect(stock_url)
-    crypto_conn = psycopg2.connect(crypto_url)
-
-    log.info("Connected to stocks DB and crypto DB")
-    log.info("Subscribing to %s as group '%s'", TOPICS, GROUP_ID)
-
-    stock_buf  = _Buffer(stock_conn,  name="stocks")
-    crypto_buf = _Buffer(crypto_conn, name="crypto")
+    log.info("StorageConsumer started | bucket=%s | topics=%s", bucket, TOPICS)
 
     with BaseConsumer(TOPICS, group_id=GROUP_ID) as consumer:
         while True:
-            for msg in consumer.poll(timeout_ms=1000):
-                buf = crypto_buf if msg.topic in _CRYPTO_TOPIC_SET else stock_buf
-                buf.add(msg.value)
-
-            if stock_buf.should_flush():
-                stock_buf.flush()
-            if crypto_buf.should_flush():
-                crypto_buf.flush()
+            for record in consumer.poll(timeout_ms=1000):
+                buf.add(record.value)
+            if buf.should_flush():
+                buf.flush()

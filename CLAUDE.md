@@ -19,20 +19,19 @@ cp .env.example .env
 
 ## Infrastructure
 
-Start Kafka (KRaft, no ZooKeeper) and TimescaleDB:
+Start Kafka (KRaft, no ZooKeeper) and MinIO:
 
 ```bash
 docker compose up -d
 ```
 
-Apply the database schema (run once after first `docker compose up`):
+Create the MinIO bucket (run once after first `docker compose up`):
 
 ```bash
-source .venv/bin/activate
-psql $TIMESCALE_URL -f db/schema.sql
-# or if psql is not installed locally:
-docker exec -i timescaledb psql -U postgres -d stocks < db/schema.sql
+make minio-init
 ```
+
+MinIO Web Console: http://localhost:9001 (user: `minioadmin` / pass: `minioadmin`)
 
 Stop and tear down (data is preserved in Docker volumes):
 
@@ -78,7 +77,9 @@ Never commit directly to `main`. Always return the PR URL when done.
 
 See `DESIGN.md` for the full design document and `architecture.drawio` for the system diagram (open in app.diagrams.net or the VS Code Draw.io extension).
 
-**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → TimescaleDB → Analysis layer → reports/
+**Data flow:** vnstock API → Producers → Kafka topics → StorageConsumer → MinIO (Parquet) → Analysis layer → reports/
+
+**Storage layout:** `s3://market-data/{event_type}/symbol={symbol}/date={date}/part-{ts}.parquet` — partitioned by event type, symbol, and date. Queryable directly with pandas, DuckDB, or PyArrow Dataset.
 
 **Kafka topics:** `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` — all partitioned by stock symbol.
 

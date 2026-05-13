@@ -1,4 +1,4 @@
-.PHONY: install uninstall topics-create db-migrate db-flush run run-smoke-producer run-smoke-consumer \
+.PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
         run-price-producer run-ohlcv-producer \
         run-crypto-price-producer run-crypto-ohlcv-producer \
         run-storage-consumer run-alert-consumer \
@@ -10,18 +10,18 @@ PYTHON := .venv/bin/python
 PIP    := .venv/bin/pip
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, TimescaleDB, Flink)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
-	read -p "  TimescaleDB (stocks + crypto data)? [y/n] " d; \
+	read -p "  MinIO (object storage)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
-	if [ "$$k" != "y" ] && [ "$$d" != "y" ] && [ "$$fl" != "y" ]; then \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
 		if [ "$$k" = "y" ]; then services="$$services kafka kafka-ui"; fi; \
-		if [ "$$d" = "y" ]; then services="$$services timescaledb"; fi; \
+		if [ "$$m" = "y" ]; then services="$$services minio"; fi; \
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
@@ -34,13 +34,13 @@ install: ## Interactively install selected infrastructure (Kafka, TimescaleDB, F
 		fi; \
 		echo "Starting:$$services"; \
 		docker compose up -d $$services; \
-		if [ "$$d" = "y" ]; then \
-			echo "Waiting for TimescaleDB..."; \
-			until docker exec timescaledb pg_isready -U postgres -d stocks 2>/dev/null; do \
+		if [ "$$m" = "y" ]; then \
+			echo "Waiting for MinIO..."; \
+			until curl -sf http://localhost:9000/minio/health/live 2>/dev/null; do \
 				printf '.'; sleep 2; \
 			done; \
 			echo ""; \
-			$(MAKE) db-migrate; \
+			$(MAKE) minio-init; \
 		fi; \
 		if [ "$$k" = "y" ]; then \
 			echo "Waiting for Kafka..."; \
@@ -55,10 +55,10 @@ install: ## Interactively install selected infrastructure (Kafka, TimescaleDB, F
 
 uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	@echo "Select services to remove (data is permanently deleted):"
-	@read -p "  Kafka + Kafka UI? [y/n " k; \
-	read -p "  TimescaleDB (stocks + crypto data)? [y/n " d; \
-	read -p "  Flink (JobManager + TaskManager)? [y/n " fl; \
-	if [ "$$k" != "y" ] && [ "$$d" != "y" ] && [ "$$fl" != "y" ]; then \
+	@read -p "  Kafka + Kafka UI? [y/n] " k; \
+	read -p "  MinIO (all stored Parquet data)? [y/n] " m; \
+	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		if [ "$$k" = "y" ]; then \
@@ -66,10 +66,10 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 			docker compose rm -sf kafka kafka-ui; \
 			docker volume ls -q | grep kafka_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
-		if [ "$$d" = "y" ]; then \
-			echo "Removing TimescaleDB..."; \
-			docker compose rm -sf timescaledb; \
-			docker volume ls -q | grep timescale_data | xargs docker volume rm 2>/dev/null || true; \
+		if [ "$$m" = "y" ]; then \
+			echo "Removing MinIO..."; \
+			docker compose rm -sf minio; \
+			docker volume ls -q | grep minio_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Removing Flink..."; \
@@ -90,17 +90,21 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic crypto.ohlcv.daily    --partitions 6 --replication-factor 1
 
-db-migrate: ## Apply schema to both databases (safe to re-run; creates crypto DB if missing)
-	docker exec -i timescaledb psql -U postgres -d stocks < db/schema.sql
+minio-init: ## Create the market-data bucket in MinIO (safe to re-run)
+	$(PYTHON) db/init_minio.py
 
-db-flush: ## Delete all rows from both TimescaleDB databases (schema is preserved)
-	@echo "WARNING: this deletes all data in stocks and crypto databases."
+storage-flush: ## Delete all Parquet objects from MinIO (irreversible)
+	@echo "WARNING: this permanently deletes all data in the market-data bucket."
 	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
-	docker exec timescaledb psql -U postgres -d stocks \
-		-c "TRUNCATE price_snapshots, ohlcv_daily, financials;"
-	docker exec timescaledb psql -U postgres -d crypto \
-		-c "TRUNCATE price_snapshots, ohlcv_daily;"
-	@echo "All table data deleted."
+	$(PYTHON) -c "\
+import boto3, os; from dotenv import load_dotenv; load_dotenv(); \
+s3 = boto3.client('s3', endpoint_url=os.getenv('MINIO_ENDPOINT','http://localhost:9000'), \
+    aws_access_key_id=os.getenv('MINIO_ACCESS_KEY','minioadmin'), \
+    aws_secret_access_key=os.getenv('MINIO_SECRET_KEY','minioadmin'), region_name='us-east-1'); \
+bucket = os.getenv('MINIO_BUCKET','market-data'); \
+objs = s3.list_objects_v2(Bucket=bucket).get('Contents', []); \
+[s3.delete_object(Bucket=bucket, Key=o['Key']) for o in objs]; \
+print(f'Deleted {len(objs)} objects from {bucket}.')"
 
 run: ## Start all infrastructure containers (Kafka, TimescaleDB, Flink, Kafka UI)
 	docker compose up -d
@@ -124,7 +128,7 @@ run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s
 run-crypto-ohlcv-producer:  ## Fetch crypto daily OHLCV → Kafka
 	$(PYTHON) main.py crypto-ohlcv-producer
 
-run-storage-consumer: ## Kafka → TimescaleDB
+run-storage-consumer: ## Kafka → MinIO (Parquet)
 	$(PYTHON) main.py storage-consumer
 
 run-alert-consumer:   ## Real-time price threshold alerts
