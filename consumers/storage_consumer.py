@@ -8,10 +8,11 @@ import os
 import time
 from collections import defaultdict
 
-import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
 from dotenv import load_dotenv
+
+from minio import Minio
 
 from consumers.base_consumer import BaseConsumer
 
@@ -120,8 +121,8 @@ class _Buffer:
     On flush, writes one Parquet file per key to MinIO.
     """
 
-    def __init__(self, s3, bucket: str):
-        self._s3         = s3
+    def __init__(self, client: Minio, bucket: str):
+        self._client     = client
         self._bucket     = bucket
         self._rows: dict[tuple, list] = defaultdict(list)
         self._last_flush = time.monotonic()
@@ -156,8 +157,11 @@ class _Buffer:
             table  = pa.Table.from_pylist(rows, schema=schema)
             buf    = io.BytesIO()
             pq.write_table(table, buf, compression="snappy")
-            buf.seek(0)
-            self._s3.put_object(Bucket=self._bucket, Key=key, Body=buf.getvalue())
+            data   = buf.getvalue()
+            self._client.put_object(
+                self._bucket, key, io.BytesIO(data), len(data),
+                content_type="application/octet-stream",
+            )
             log.info("wrote %3d rows → s3://%s/%s", len(rows), self._bucket, key)
 
         self._rows.clear()
@@ -166,16 +170,21 @@ class _Buffer:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def run() -> None:
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=os.getenv("MINIO_ENDPOINT",    "http://localhost:9000"),
-        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-        region_name="us-east-1",
+def _make_client() -> Minio:
+    endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+    secure   = endpoint.startswith("https://")
+    host     = endpoint.split("://", 1)[-1]
+    return Minio(
+        host,
+        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+        secure=secure,
     )
+
+
+def run() -> None:
     bucket = os.getenv("MINIO_BUCKET", "market-data")
-    buf    = _Buffer(s3, bucket)
+    buf    = _Buffer(_make_client(), bucket)
 
     log.info("StorageConsumer started | bucket=%s | topics=%s", bucket, TOPICS)
 

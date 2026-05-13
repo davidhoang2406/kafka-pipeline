@@ -3,9 +3,9 @@ import os
 import socket
 import uuid
 
-import boto3
 import pytest
 from kafka import KafkaProducer
+from minio import Minio
 
 KAFKA_BOOTSTRAP  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",    "http://localhost:9000")
@@ -35,6 +35,12 @@ def _minio_reachable() -> bool:
         return False
 
 
+def _make_minio_client() -> Minio:
+    secure = MINIO_ENDPOINT.startswith("https://")
+    host   = MINIO_ENDPOINT.split("://", 1)[-1]
+    return Minio(host, access_key=MINIO_ACCESS_KEY, secret_key=MINIO_SECRET_KEY, secure=secure)
+
+
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")
@@ -58,23 +64,15 @@ def kafka_producer(kafka_bootstrap):
 
 
 @pytest.fixture
-def s3_client():
+def minio_client():
     if not _minio_reachable():
         pytest.skip("MinIO not reachable — run `docker compose up -d` first")
-    client = boto3.client(
-        "s3",
-        endpoint_url=MINIO_ENDPOINT,
-        aws_access_key_id=MINIO_ACCESS_KEY,
-        aws_secret_access_key=MINIO_SECRET_KEY,
-        region_name="us-east-1",
-    )
+    client = _make_minio_client()
     yield client
     # Cleanup: delete all test objects written by this test run
-    paginator = client.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=MINIO_BUCKET):
-        for obj in page.get("Contents", []):
-            if f"symbol={TEST_SYMBOL}" in obj["Key"]:
-                client.delete_object(Bucket=MINIO_BUCKET, Key=obj["Key"])
+    for obj in client.list_objects(MINIO_BUCKET, recursive=True):
+        if f"symbol={TEST_SYMBOL}" in obj.object_name:
+            client.remove_object(MINIO_BUCKET, obj.object_name)
 
 
 @pytest.fixture

@@ -17,24 +17,27 @@ def _ohlcv_msg(**kwargs) -> dict:
     return build_envelope("ohlcv.bar", TEST_SYMBOL, "HOSE", payload, timestamp=TRADING_TS)
 
 
-def _read_parquet(s3_client, prefix: str):
-    response = s3_client.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
-    keys = [o["Key"] for o in response.get("Contents", [])]
-    assert keys, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
-    obj = s3_client.get_object(Bucket=MINIO_BUCKET, Key=keys[0])
-    return pq.read_table(io.BytesIO(obj["Body"].read())).to_pandas()
+def _read_parquet(minio_client, prefix: str):
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=True))
+    assert objects, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
+    response = minio_client.get_object(MINIO_BUCKET, objects[0].object_name)
+    try:
+        return pq.read_table(io.BytesIO(response.read())).to_pandas()
+    finally:
+        response.close()
+        response.release_conn()
 
 
 @pytest.mark.integration
-def test_ohlcv_bar_uses_trading_date_not_insertion_time(s3_client):
+def test_ohlcv_bar_uses_trading_date_not_insertion_time(minio_client):
     """The envelope timestamp (trading date) must be stored in the `time` field."""
     msg = _ohlcv_msg()
-    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf = _Buffer(minio_client, MINIO_BUCKET)
     buf.add(msg)
     buf.flush()
 
     prefix = f"ohlcv.bar/symbol={TEST_SYMBOL}/date={TRADING_DATE}/"
-    df = _read_parquet(s3_client, prefix)
+    df = _read_parquet(minio_client, prefix)
 
     row = df[df["symbol"] == TEST_SYMBOL]
     assert len(row) >= 1
@@ -46,15 +49,15 @@ def test_ohlcv_bar_uses_trading_date_not_insertion_time(s3_client):
 
 
 @pytest.mark.integration
-def test_ohlcv_parquet_schema(s3_client):
+def test_ohlcv_parquet_schema(minio_client):
     """Written Parquet file must contain all expected OHLCV columns."""
     msg = _ohlcv_msg()
-    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf = _Buffer(minio_client, MINIO_BUCKET)
     buf.add(msg)
     buf.flush()
 
     prefix = f"ohlcv.bar/symbol={TEST_SYMBOL}/date={TRADING_DATE}/"
-    df = _read_parquet(s3_client, prefix)
+    df = _read_parquet(minio_client, prefix)
 
     for col in ("time", "symbol", "exchange", "open", "high", "low", "close", "volume"):
         assert col in df.columns, f"Missing column: {col}"

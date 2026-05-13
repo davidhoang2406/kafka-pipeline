@@ -24,27 +24,30 @@ def _price_msg(price: float = 12345.0) -> dict:
     )
 
 
-def _read_parquet(s3_client, prefix: str):
+def _read_parquet(minio_client, prefix: str):
     """Download the first Parquet file under prefix and return a pandas DataFrame."""
-    response = s3_client.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=prefix)
-    keys = [o["Key"] for o in response.get("Contents", [])]
-    assert keys, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
-    obj = s3_client.get_object(Bucket=MINIO_BUCKET, Key=keys[0])
-    return pq.read_table(io.BytesIO(obj["Body"].read())).to_pandas()
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=prefix, recursive=True))
+    assert objects, f"No Parquet file found under s3://{MINIO_BUCKET}/{prefix}"
+    response = minio_client.get_object(MINIO_BUCKET, objects[0].object_name)
+    try:
+        return pq.read_table(io.BytesIO(response.read())).to_pandas()
+    finally:
+        response.close()
+        response.release_conn()
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
 
 @pytest.mark.integration
-def test_price_snapshot_written_to_minio(s3_client):
+def test_price_snapshot_written_to_minio(minio_client):
     """_Buffer should write a Parquet file and the row should be readable back."""
     msg = _price_msg(price=12345.0)
-    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf = _Buffer(minio_client, MINIO_BUCKET)
     buf.add(msg)
     buf.flush()
 
     prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
-    df = _read_parquet(s3_client, prefix)
+    df = _read_parquet(minio_client, prefix)
 
     row = df[df["symbol"] == TEST_SYMBOL]
     assert len(row) == 1
@@ -53,16 +56,16 @@ def test_price_snapshot_written_to_minio(s3_client):
 
 
 @pytest.mark.integration
-def test_parquet_partition_path_structure(s3_client):
+def test_parquet_partition_path_structure(minio_client):
     """Parquet files must be stored under the correct partition prefix."""
     msg = _price_msg()
-    buf = _Buffer(s3_client, MINIO_BUCKET)
+    buf = _Buffer(minio_client, MINIO_BUCKET)
     buf.add(msg)
     buf.flush()
 
     expected_prefix = f"price.snapshot/symbol={TEST_SYMBOL}/date={FIXED_DATE}/"
-    response = s3_client.list_objects_v2(Bucket=MINIO_BUCKET, Prefix=expected_prefix)
-    assert response.get("Contents"), f"Expected objects under {expected_prefix}"
+    objects = list(minio_client.list_objects(MINIO_BUCKET, prefix=expected_prefix, recursive=True))
+    assert objects, f"Expected objects under {expected_prefix}"
 
 
 @pytest.mark.integration

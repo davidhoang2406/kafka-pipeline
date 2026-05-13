@@ -2,31 +2,34 @@
 # Run once after `docker compose up -d minio` to initialize storage.
 import os
 
-import boto3
-from botocore.exceptions import ClientError
 from dotenv import load_dotenv
+from minio import Minio
+from minio.error import S3Error
 
 load_dotenv()
 
 BUCKET = os.getenv("MINIO_BUCKET", "market-data")
 
 
-def run() -> None:
-    s3 = boto3.client(
-        "s3",
-        endpoint_url=os.getenv("MINIO_ENDPOINT", "http://localhost:9000"),
-        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-        region_name="us-east-1",
+def _make_client() -> Minio:
+    endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
+    secure   = endpoint.startswith("https://")
+    host     = endpoint.split("://", 1)[-1]
+    return Minio(
+        host,
+        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
+        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+        secure=secure,
     )
-    try:
-        s3.create_bucket(Bucket=BUCKET)
+
+
+def run() -> None:
+    client = _make_client()
+    if client.bucket_exists(BUCKET):
+        print(f"Bucket '{BUCKET}' already exists — nothing to do.")
+    else:
+        client.make_bucket(BUCKET)
         print(f"Bucket '{BUCKET}' created.")
-    except ClientError as e:
-        if e.response["Error"]["Code"] in ("BucketAlreadyExists", "BucketAlreadyOwnedByYou"):
-            print(f"Bucket '{BUCKET}' already exists — nothing to do.")
-        else:
-            raise
 
 
 if __name__ == "__main__":

@@ -97,13 +97,12 @@ storage-flush: ## Delete all Parquet objects from MinIO (irreversible)
 	@echo "WARNING: this permanently deletes all data in the market-data bucket."
 	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
 	$(PYTHON) -c "\
-import boto3, os; from dotenv import load_dotenv; load_dotenv(); \
-s3 = boto3.client('s3', endpoint_url=os.getenv('MINIO_ENDPOINT','http://localhost:9000'), \
-    aws_access_key_id=os.getenv('MINIO_ACCESS_KEY','minioadmin'), \
-    aws_secret_access_key=os.getenv('MINIO_SECRET_KEY','minioadmin'), region_name='us-east-1'); \
+import os; from dotenv import load_dotenv; load_dotenv(); from minio import Minio; \
+ep = os.getenv('MINIO_ENDPOINT','http://localhost:9000'); \
+client = Minio(ep.split('://')[-1], access_key=os.getenv('MINIO_ACCESS_KEY','minioadmin'), secret_key=os.getenv('MINIO_SECRET_KEY','minioadmin'), secure=ep.startswith('https')); \
 bucket = os.getenv('MINIO_BUCKET','market-data'); \
-objs = s3.list_objects_v2(Bucket=bucket).get('Contents', []); \
-[s3.delete_object(Bucket=bucket, Key=o['Key']) for o in objs]; \
+objs = list(client.list_objects(bucket, recursive=True)); \
+[client.remove_object(bucket, o.object_name) for o in objs]; \
 print(f'Deleted {len(objs)} objects from {bucket}.')"
 
 run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
