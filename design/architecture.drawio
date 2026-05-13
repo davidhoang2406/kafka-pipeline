@@ -1,152 +1,219 @@
 <mxfile host="drawio-plugin" modified="2026-05-14T00:00:00.000Z" agent="Mozilla/5.0" version="22.1.22" type="embed">
-  <diagram name="Stock &amp; Crypto Pipeline" id="stock-arch-v6">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2150" pageHeight="1000" math="0" shadow="0">
+  <diagram name="Stock &amp; Crypto Pipeline" id="stock-arch-v7">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
 
-        <!-- ── Background zones ── -->
+        <!-- ════════════════════════════════════════════
+             BACKGROUND ZONES
+             Canvas: 2400 × 1500
+             Top section  y=20–800  (streaming pipeline)
+             Bottom section  y=950–1460  (analysis)
+             ════════════════════════════════════════════ -->
+
+        <!-- Docker Compose boundary (Kafka + StorageConsumer + MinIO) -->
         <mxCell id="bg_docker" value="Docker Compose" style="rounded=1;fillColor=none;strokeColor=#aaaaaa;strokeWidth=1;dashed=1;dashPattern=8 4;fontStyle=2;fontSize=11;fontColor=#888888;verticalAlign=bottom;align=right;" parent="1" vertex="1">
-          <mxGeometry x="445" y="12" width="1145" height="503" as="geometry" />
+          <mxGeometry x="545" y="12" width="1215" height="780" as="geometry" />
         </mxCell>
+
+        <!-- Stock pipeline zone  x=10 y=20 w=520 h=360 -->
         <mxCell id="bg_stock" value="STOCK PIPELINE  ·  vnstock / KBS" style="rounded=1;fillColor=#f0f4ff;strokeColor=#6c8ebf;strokeWidth=1;fontStyle=1;fontSize=10;fontColor=#003166;verticalAlign=top;align=left;" parent="1" vertex="1">
-          <mxGeometry x="10" y="20" width="420" height="235" as="geometry" />
+          <mxGeometry x="10" y="20" width="520" height="360" as="geometry" />
         </mxCell>
+
+        <!-- Crypto pipeline zone  x=10 y=420 w=520 h=165 -->
         <mxCell id="bg_crypto" value="CRYPTO PIPELINE  ·  CCXT / Binance" style="rounded=1;fillColor=#f1f8e9;strokeColor=#388e3c;strokeWidth=1;fontStyle=1;fontSize=10;fontColor=#1a4d1a;verticalAlign=top;align=left;" parent="1" vertex="1">
-          <mxGeometry x="10" y="270" width="420" height="180" as="geometry" />
+          <mxGeometry x="10" y="420" width="520" height="165" as="geometry" />
         </mxCell>
+
+        <!-- Batch ingest zone  x=10 y=625 w=520 h=175 -->
         <mxCell id="bg_batch" value="BATCH INGEST  ·  daily cron  (direct → MinIO, bypasses Kafka)" style="rounded=1;fillColor=#fffde7;strokeColor=#d6b656;strokeWidth=1;fontStyle=1;fontSize=10;fontColor=#614500;verticalAlign=top;align=left;" parent="1" vertex="1">
-          <mxGeometry x="10" y="465" width="420" height="180" as="geometry" />
+          <mxGeometry x="10" y="625" width="520" height="175" as="geometry" />
         </mxCell>
+
+        <!-- Kafka zone  x=550 y=20 w=340 h=770 -->
         <mxCell id="bg_kafka" value="APACHE KAFKA 4.0  ·  KRaft (no ZooKeeper)  —  3 topics" style="rounded=1;fillColor=#fffde7;strokeColor=#e65100;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#614500;verticalAlign=top;align=center;" parent="1" vertex="1">
-          <mxGeometry x="450" y="20" width="320" height="470" as="geometry" />
+          <mxGeometry x="550" y="20" width="340" height="770" as="geometry" />
         </mxCell>
+
+        <!-- MinIO zone  x=1140 y=20 w=610 h=710 -->
         <mxCell id="bg_minio" value="MinIO  ·  s3://market-data/  ·  30-day lifecycle" style="rounded=1;fillColor=#f3e5f5;strokeColor=#9673a6;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#4a148c;verticalAlign=top;align=center;" parent="1" vertex="1">
-          <mxGeometry x="1010" y="20" width="565" height="490" as="geometry" />
+          <mxGeometry x="1140" y="20" width="610" height="710" as="geometry" />
         </mxCell>
+
+        <!-- Flink zone  x=10 y=950 w=840 h=510 -->
         <mxCell id="bg_flink" value="APACHE FLINK 2.0  ·  Streaming Analysis  (http://localhost:8081)" style="rounded=1;fillColor=#fff3e0;strokeColor=#e65100;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#e65100;verticalAlign=top;align=center;" parent="1" vertex="1">
-          <mxGeometry x="10" y="660" width="720" height="315" as="geometry" />
+          <mxGeometry x="10" y="950" width="840" height="510" as="geometry" />
         </mxCell>
+
+        <!-- Spark zone  x=870 y=950 w=1510 h=510 -->
         <mxCell id="bg_spark" value="APACHE SPARK  ·  Batch Analysis  (local[*])" style="rounded=1;fillColor=#e3f2fd;strokeColor=#006EAF;strokeWidth=2;fontStyle=1;fontSize=10;fontColor=#006EAF;verticalAlign=top;align=center;" parent="1" vertex="1">
-          <mxGeometry x="750" y="660" width="1390" height="315" as="geometry" />
+          <mxGeometry x="870" y="950" width="1510" height="510" as="geometry" />
         </mxCell>
 
-        <!-- ── External API sources (cloud) ── -->
+        <!-- ════════════════════════════════════════════
+             EXTERNAL SOURCES  (cloud shape)
+             ════════════════════════════════════════════ -->
+
+        <!-- vnstock cloud — vertically centred between pp (y=65) and fp (y=250) -->
         <mxCell id="vnstock_api" value="&lt;b&gt;vnstock API&lt;/b&gt;&lt;br&gt;HTTP · KBS source" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="18" y="78" width="175" height="80" as="geometry" />
-        </mxCell>
-        <mxCell id="ccxt_api" value="&lt;b&gt;Crypto Exchange&lt;/b&gt;&lt;br&gt;CCXT · Binance REST" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="18" y="300" width="175" height="80" as="geometry" />
+          <mxGeometry x="20" y="155" width="170" height="80" as="geometry" />
         </mxCell>
 
-        <!-- ── Stock streaming producers ── -->
+        <!-- CCXT cloud — centred beside cpp (y=455) -->
+        <mxCell id="ccxt_api" value="&lt;b&gt;Crypto Exchange&lt;/b&gt;&lt;br&gt;CCXT · Binance REST" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;" parent="1" vertex="1">
+          <mxGeometry x="20" y="450" width="170" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ════════════════════════════════════════════
+             STOCK STREAMING PRODUCERS
+             pp y=65, fp y=250  →  gap = 250−65−85 = 100 px ✓
+             cloud→pp horizontal gap = 290−20−170 = 100 px ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="pp" value="&lt;b&gt;PriceProducer&lt;/b&gt;&lt;br&gt;polls every 30 s&lt;br&gt;&lt;font color='#555'&gt;&lt;i&gt;Trading().price_board()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="218" y="55" width="198" height="85" as="geometry" />
+          <mxGeometry x="290" y="65" width="200" height="85" as="geometry" />
         </mxCell>
         <mxCell id="fp" value="&lt;b&gt;FinancialsProducer&lt;/b&gt;&lt;br&gt;quarterly fetch&lt;br&gt;&lt;font color='#555'&gt;&lt;i&gt;Finance().income()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="218" y="155" width="198" height="85" as="geometry" />
+          <mxGeometry x="290" y="250" width="200" height="85" as="geometry" />
         </mxCell>
 
-        <!-- ── Crypto streaming producer ── -->
+        <!-- ════════════════════════════════════════════
+             CRYPTO STREAMING PRODUCER
+             cloud→cpp horizontal gap = 290−20−170 = 100 px ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="cpp" value="&lt;b&gt;CryptoPriceProducer&lt;/b&gt;&lt;br&gt;polls every 60 s&lt;br&gt;&lt;font color='#555'&gt;&lt;i&gt;exchange.fetch_tickers()&lt;/i&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="218" y="288" width="198" height="85" as="geometry" />
+          <mxGeometry x="290" y="455" width="200" height="85" as="geometry" />
         </mxCell>
 
-        <!-- ── Batch ingest jobs (parallelogram) ── -->
+        <!-- ════════════════════════════════════════════
+             BATCH INGEST JOBS  (parallelogram)
+             ohlcv_stock→ohlcv_crypto horizontal gap = 325−20−190 = 115 px ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="ohlcv_stock" value="&lt;b&gt;OHLCVIngestStock&lt;/b&gt;&lt;br&gt;daily cron · vnstock&lt;br&gt;&lt;font color='#555'&gt;&lt;i&gt;Quote().history()&lt;/i&gt;&lt;/font&gt;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#d6b656;fontSize=11;fixedSize=1;" parent="1" vertex="1">
-          <mxGeometry x="18" y="505" width="190" height="92" as="geometry" />
+          <mxGeometry x="20" y="658" width="190" height="95" as="geometry" />
         </mxCell>
         <mxCell id="ohlcv_crypto" value="&lt;b&gt;OHLCVIngestCrypto&lt;/b&gt;&lt;br&gt;daily cron · CCXT&lt;br&gt;&lt;font color='#555'&gt;&lt;i&gt;exchange.fetch_ohlcv()&lt;/i&gt;&lt;/font&gt;" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#fff9c4;strokeColor=#d6b656;fontSize=11;fixedSize=1;" parent="1" vertex="1">
-          <mxGeometry x="228" y="505" width="190" height="92" as="geometry" />
+          <mxGeometry x="325" y="658" width="190" height="95" as="geometry" />
         </mxCell>
 
-        <!-- ── Kafka topics (cylinder3 = log/queue shape) ── -->
+        <!-- ════════════════════════════════════════════
+             KAFKA TOPICS  (cylinder3 = log/queue drum)
+             t1 y=65, t2 y=250, t3 y=435
+             gaps: 250−65−85=100 ✓  435−250−85=100 ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="t1" value="&lt;b&gt;stock.price.realtime&lt;/b&gt;&lt;br&gt;6 partitions · key: symbol&lt;br&gt;&lt;font color='#7f6000'&gt;live price snapshots&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="463" y="60" width="293" height="85" as="geometry" />
+          <mxGeometry x="565" y="65" width="305" height="85" as="geometry" />
         </mxCell>
         <mxCell id="t2" value="&lt;b&gt;stock.financials&lt;/b&gt;&lt;br&gt;3 partitions · key: symbol&lt;br&gt;&lt;font color='#7f6000'&gt;quarterly financial statements&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="463" y="162" width="293" height="85" as="geometry" />
+          <mxGeometry x="565" y="250" width="305" height="85" as="geometry" />
         </mxCell>
         <mxCell id="t3" value="&lt;b&gt;crypto.price.realtime&lt;/b&gt;&lt;br&gt;6 partitions · key: pair (BTC-USDT)&lt;br&gt;&lt;font color='#1a4d1a'&gt;live ticker snapshots&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#c8e6c9;strokeColor=#388e3c;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="463" y="264" width="293" height="85" as="geometry" />
+          <mxGeometry x="565" y="435" width="305" height="85" as="geometry" />
         </mxCell>
+
+        <!-- Kafka UI + AlertConsumer (secondary, smaller gaps) -->
         <mxCell id="kafkaui" value="&lt;b&gt;Kafka UI&lt;/b&gt;  http://localhost:8080" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8eaf6;strokeColor=#3949ab;fontSize=11;fontStyle=2;" parent="1" vertex="1">
-          <mxGeometry x="463" y="364" width="293" height="38" as="geometry" />
+          <mxGeometry x="565" y="580" width="305" height="40" as="geometry" />
         </mxCell>
         <mxCell id="ac" value="&lt;b&gt;AlertConsumer&lt;/b&gt;&lt;br&gt;reads: stock.price.realtime&lt;br&gt;group: alerts · threshold rules" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe0b2;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="463" y="417" width="293" height="62" as="geometry" />
+          <mxGeometry x="565" y="660" width="305" height="72" as="geometry" />
         </mxCell>
 
-        <!-- ── Alert output (note/document shape) ── -->
+        <!-- Alert output — note/document shape, just below kafka zone -->
         <mxCell id="out_alert" value="&lt;b&gt;Console / Telegram&lt;/b&gt;&lt;br&gt;real-time price threshold alerts" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=18;fillColor=#fce4ec;strokeColor=#c62828;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="463" y="522" width="293" height="62" as="geometry" />
+          <mxGeometry x="565" y="810" width="305" height="68" as="geometry" />
         </mxCell>
 
-        <!-- ── Storage consumer (tall rounded rect) ── -->
+        <!-- ════════════════════════════════════════════
+             STORAGE CONSUMER  (tall rounded rect)
+             spans full height of the Kafka zone
+             ════════════════════════════════════════════ -->
+
         <mxCell id="sc" value="&lt;b&gt;StorageConsumer&lt;/b&gt;&lt;br&gt;group: storage&lt;br&gt;batch: 100 rows / 10 s&lt;br&gt;&lt;br&gt;fastavro · deflate codec&lt;br&gt;year/month/day partitioned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="793" y="35" width="200" height="450" as="geometry" />
+          <mxGeometry x="915" y="35" width="210" height="755" as="geometry" />
         </mxCell>
 
-        <!-- ── MinIO partitions (cylinder3 = storage drum) ── -->
+        <!-- ════════════════════════════════════════════
+             MINIO PARTITIONS  (cylinder3 = storage drum)
+             ps y=65, fr y=257, ohlcv y=449
+             gaps: 257−65−92=100 ✓  449−257−92=100 ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="minio_ps" value="&lt;b&gt;price.snapshot/&lt;/b&gt;&lt;br&gt;symbol={sym}/year={y}/month={m}/day={d}/part-{ts}.avro&lt;br&gt;&lt;font color='#4a148c'&gt;PriceSnapshot · 9 fields · Avro+deflate&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1023" y="65" width="539" height="90" as="geometry" />
+          <mxGeometry x="1155" y="65" width="575" height="92" as="geometry" />
         </mxCell>
         <mxCell id="minio_fr" value="&lt;b&gt;financials.report/&lt;/b&gt;&lt;br&gt;symbol={sym}/year={y}/month={m}/day={d}/part-{ts}.avro&lt;br&gt;&lt;font color='#4a148c'&gt;FinancialsReport · quarterly · Avro+deflate&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1023" y="170" width="539" height="90" as="geometry" />
+          <mxGeometry x="1155" y="257" width="575" height="92" as="geometry" />
         </mxCell>
         <mxCell id="minio_ohlcv" value="&lt;b&gt;ohlcv.bar/&lt;/b&gt;&lt;br&gt;symbol={sym}/year={y}/month={m}/day={d}/part-{ts}.avro&lt;br&gt;&lt;font color='#614500'&gt;OhlcvBar · written by batch ingest (bypasses Kafka)&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#fff9c4;strokeColor=#d6b656;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1023" y="275" width="539" height="90" as="geometry" />
+          <mxGeometry x="1155" y="449" width="575" height="92" as="geometry" />
         </mxCell>
+
+        <!-- MinIO lifecycle note + console URL (secondary, smaller gaps) -->
         <mxCell id="minio_lifecycle" value="30-day expiry lifecycle rule  ·  set_bucket_lifecycle()" style="text;html=1;align=center;verticalAlign=middle;resizable=0;strokeColor=none;fillColor=none;fontSize=10;fontColor=#4a148c;fontStyle=2;" parent="1" vertex="1">
-          <mxGeometry x="1023" y="378" width="539" height="26" as="geometry" />
+          <mxGeometry x="1155" y="591" width="575" height="26" as="geometry" />
         </mxCell>
         <mxCell id="minio_console" value="&lt;b&gt;MinIO Console&lt;/b&gt;  http://localhost:9001  (user: minioadmin)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e5f5;strokeColor=#9673a6;fontSize=11;fontStyle=2;" parent="1" vertex="1">
-          <mxGeometry x="1023" y="416" width="539" height="38" as="geometry" />
+          <mxGeometry x="1155" y="637" width="575" height="42" as="geometry" />
         </mxCell>
 
-        <!-- ── Flink cluster nodes ── -->
+        <!-- ════════════════════════════════════════════
+             FLINK CLUSTER  (inside bg_flink x=10 y=950)
+             jm/tm y=990   fj1/fj2 y=1155   flink_out y=1365
+             gaps: 1155−990−65=100 ✓  1365−1155−110=100 ✓
+             jm→tm horizontal gap = 360−20−220 = 120 px ✓
+             fj1→fj2 horizontal gap = 470−20−350 = 100 px ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="jm" value="&lt;b&gt;JobManager&lt;/b&gt;&lt;br&gt;scheduling &amp; coordination" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcc80;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="20" y="700" width="210" height="65" as="geometry" />
+          <mxGeometry x="20" y="990" width="220" height="65" as="geometry" />
         </mxCell>
         <mxCell id="tm" value="&lt;b&gt;TaskManager&lt;/b&gt;&lt;br&gt;4 task slots" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffcc80;strokeColor=#e65100;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="250" y="700" width="210" height="65" as="geometry" />
+          <mxGeometry x="360" y="990" width="220" height="65" as="geometry" />
         </mxCell>
-
-        <!-- ── Flink jobs (hexagon) ── -->
         <mxCell id="fj1" value="&lt;b&gt;PriceAlertJob&lt;/b&gt;&lt;br&gt;reads: stock.price.realtime&lt;br&gt;CEP threshold rules" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="20" y="786" width="338" height="105" as="geometry" />
+          <mxGeometry x="20" y="1155" width="350" height="110" as="geometry" />
         </mxCell>
         <mxCell id="fj2" value="&lt;b&gt;VolatilityBurstJob&lt;/b&gt;&lt;br&gt;reads: stock + crypto price topics&lt;br&gt;sliding window σ spike detection" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#e65100;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="378" y="786" width="338" height="105" as="geometry" />
+          <mxGeometry x="470" y="1155" width="350" height="110" as="geometry" />
         </mxCell>
-
-        <!-- ── Flink output (note shape) ── -->
         <mxCell id="flink_out" value="&lt;b&gt;Console Alerts&lt;/b&gt;  ·  [ALERT] price threshold  /  [BURST] volatility spike" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=18;fillColor=#fce4ec;strokeColor=#c62828;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="20" y="912" width="696" height="48" as="geometry" />
+          <mxGeometry x="20" y="1365" width="800" height="55" as="geometry" />
         </mxCell>
 
-        <!-- ── Spark jobs (hexagon) ── -->
+        <!-- ════════════════════════════════════════════
+             SPARK JOBS  (inside bg_spark x=870 y=950)
+             sj1 x=885, sj2 x=1275, sj3 x=1665, sj4 x=2055  y=1000
+             horizontal gaps all = 100 px ✓
+             sj→out_reports gap = 1210−1000−110 = 100 px ✓
+             ════════════════════════════════════════════ -->
+
         <mxCell id="sj1" value="&lt;b&gt;TechnicalJob&lt;/b&gt;&lt;br&gt;reads: ohlcv.bar/&lt;br&gt;SMA · RSI · MACD · BB" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="762" y="710" width="296" height="105" as="geometry" />
+          <mxGeometry x="885" y="1000" width="290" height="110" as="geometry" />
         </mxCell>
         <mxCell id="sj2" value="&lt;b&gt;FundamentalValuation&lt;/b&gt;&lt;br&gt;reads: ohlcv.bar/ + financials.report/&lt;br&gt;P/E · P/B · DCF · EPS ranking" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1082" y="710" width="296" height="105" as="geometry" />
+          <mxGeometry x="1275" y="1000" width="290" height="110" as="geometry" />
         </mxCell>
         <mxCell id="sj3" value="&lt;b&gt;HistoricalBacktesting&lt;/b&gt;&lt;br&gt;reads: ohlcv.bar/&lt;br&gt;strategy simulation · P&amp;L returns" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1402" y="710" width="296" height="105" as="geometry" />
+          <mxGeometry x="1665" y="1000" width="290" height="110" as="geometry" />
         </mxCell>
         <mxCell id="sj4" value="&lt;b&gt;DataQuality&lt;/b&gt;&lt;br&gt;reads: all MinIO partitions&lt;br&gt;null checks · gap detection · stats" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffffff;strokeColor=#006EAF;fontSize=10;" parent="1" vertex="1">
-          <mxGeometry x="1722" y="710" width="296" height="105" as="geometry" />
+          <mxGeometry x="2055" y="1000" width="290" height="110" as="geometry" />
         </mxCell>
-
-        <!-- ── Spark output (note shape) ── -->
         <mxCell id="out_reports" value="&lt;b&gt;reports/&lt;/b&gt;  YYYY-MM-DD.txt  ·  technical  ·  valuation  ·  backtest  ·  data-quality" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=18;fillColor=#f3e5f5;strokeColor=#7b1fa2;fontSize=11;" parent="1" vertex="1">
-          <mxGeometry x="762" y="840" width="1256" height="48" as="geometry" />
+          <mxGeometry x="885" y="1210" width="1460" height="55" as="geometry" />
         </mxCell>
 
-        <!-- ══════════ EDGES ══════════ -->
+        <!-- ════════════════════════════════════════════
+             EDGES
+             ════════════════════════════════════════════ -->
 
-        <!-- Sources → streaming producers (solid) -->
+        <!-- Sources → streaming producers -->
         <mxCell id="e1" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#6c8ebf;strokeWidth=2;" parent="1" source="vnstock_api" target="pp" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -157,7 +224,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Streaming producers → Kafka topics (solid, labeled JSON) -->
+        <!-- Streaming producers → Kafka topics -->
         <mxCell id="e4" value="JSON" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;fontColor=#614500;fontSize=10;" parent="1" source="pp" target="t1" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -168,7 +235,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Batch ingest → MinIO (purple dashed — bypasses Kafka) -->
+        <!-- Batch ingest → MinIO  (purple dashed — bypasses Kafka) -->
         <mxCell id="e7" value="Avro (direct)" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;strokeWidth=2;dashed=1;dashPattern=6 3;fontColor=#4a148c;fontSize=10;" parent="1" source="ohlcv_stock" target="minio_ohlcv" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -176,7 +243,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Kafka topics → StorageConsumer (solid green) -->
+        <!-- Kafka topics → StorageConsumer -->
         <mxCell id="e9" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#82b366;strokeWidth=2;" parent="1" source="t1" target="sc" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -187,7 +254,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- StorageConsumer → MinIO (solid purple, labeled Avro) -->
+        <!-- StorageConsumer → MinIO partitions -->
         <mxCell id="e12" value="Avro" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#9673a6;strokeWidth=2;fontColor=#4a148c;fontSize=10;" parent="1" source="sc" target="minio_ps" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -195,7 +262,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- AlertConsumer reads Kafka → outputs to note box -->
+        <!-- AlertConsumer: topic → consumer → output note -->
         <mxCell id="e14" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=2;" parent="1" source="t1" target="ac" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -203,7 +270,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Kafka → Flink jobs (open dashed — Flink reads live stream) -->
+        <!-- Kafka → Flink jobs  (open dashed = Flink reads live stream) -->
         <mxCell id="e16" value="" style="endArrow=open;endFill=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=1;dashed=1;dashPattern=8 4;" parent="1" source="t1" target="fj1" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -214,7 +281,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Flink jobs → console output (solid red) -->
+        <!-- Flink jobs → console alerts output -->
         <mxCell id="e19" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#c62828;strokeWidth=2;" parent="1" source="fj1" target="flink_out" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -222,7 +289,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- MinIO → Spark jobs (dotted teal — batch read) -->
+        <!-- MinIO → Spark jobs  (dotted teal = batch read) -->
         <mxCell id="e21" value="" style="endArrow=open;endFill=0;edgeStyle=orthogonalEdgeStyle;strokeColor=#006EAF;strokeWidth=1;dashed=1;dashPattern=4 4;" parent="1" source="minio_ohlcv" target="sj1" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -245,7 +312,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Spark jobs → reports output (solid purple) -->
+        <!-- Spark jobs → reports output -->
         <mxCell id="e28" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#7b1fa2;strokeWidth=2;" parent="1" source="sj1" target="out_reports" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
@@ -259,7 +326,7 @@
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- Flink: JobManager ↔ TaskManager -->
+        <!-- Flink cluster: JobManager → TaskManager -->
         <mxCell id="e32" value="" style="endArrow=block;endFill=1;edgeStyle=orthogonalEdgeStyle;strokeColor=#e65100;strokeWidth=1;" parent="1" source="jm" target="tm" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
