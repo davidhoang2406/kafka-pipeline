@@ -13,14 +13,15 @@ PIP     := .venv/bin/pip
 COMPOSE := docker compose -f docker/docker-compose.yml
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark, Jupyter)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
 	read -p "  MinIO (object storage)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
-	read -p "  Spark (Master + Worker)? [y/n] " sp; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ]; then \
+	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
+	read -p "  Jupyter (JupyterLab at :8888)? [y/n] " jup; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
@@ -28,6 +29,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$m" = "y" ]; then services="$$services minio"; fi; \
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
 		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
+		if [ "$$jup" = "y" ]; then services="$$services jupyter"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
 			$(COMPOSE) build flink-jobmanager flink-taskmanager; \
@@ -39,7 +41,11 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		fi; \
 		if [ "$$sp" = "y" ]; then \
 			echo "Building Spark Docker image (downloads S3A JARs — takes a moment)..."; \
-			$(COMPOSE) build spark-master spark-worker; \
+			$(COMPOSE) build spark-master spark-worker spark-history-server; \
+		fi; \
+		if [ "$$jup" = "y" ]; then \
+			echo "Building Jupyter Docker image (downloads JARs + installs deps — takes a moment)..."; \
+			$(COMPOSE) build jupyter; \
 		fi; \
 		echo "Starting:$$services"; \
 		$(COMPOSE) up -d $$services; \
@@ -67,7 +73,9 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
 	read -p "  MinIO (all stored Avro data)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
+	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
+	read -p "  Jupyter? [y/n] " jup; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		if [ "$$k" = "y" ]; then \
@@ -83,6 +91,15 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 		if [ "$$fl" = "y" ]; then \
 			echo "Removing Flink..."; \
 			$(COMPOSE) rm -sf flink-jobmanager flink-taskmanager; \
+		fi; \
+		if [ "$$sp" = "y" ]; then \
+			echo "Removing Spark..."; \
+			$(COMPOSE) rm -sf spark-master spark-worker spark-history-server; \
+			docker volume ls -q | grep spark_logs | xargs docker volume rm 2>/dev/null || true; \
+		fi; \
+		if [ "$$jup" = "y" ]; then \
+			echo "Removing Jupyter..."; \
+			$(COMPOSE) rm -sf jupyter; \
 		fi; \
 		echo "Uninstall complete."; \
 	fi
