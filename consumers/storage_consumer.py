@@ -66,7 +66,7 @@ class _Buffer:
         if event_type not in _EXTRACTORS:
             return
         row        = _EXTRACTORS[event_type](msg)
-        symbol     = msg.get("symbol", "UNKNOWN")
+        symbol     = msg.get("symbol", "UNKNOWN").replace("/", "-")
         ac         = asset_class(msg.get("source", ""))
         date       = msg.get("timestamp", "")[:10] or "unknown"
         year, month, day = _date_parts(date)
