@@ -5,7 +5,6 @@
 # Must run inside the Flink Docker cluster: make run-flink-alert
 import json
 import logging
-import operator
 import os
 from pathlib import Path
 
@@ -23,21 +22,7 @@ ALERTS_CONFIG = Path(__file__).parent.parent / "config" / "alerts.json"
 # the JAR is already in $FLINK_HOME/lib/ and Flink loads it automatically.
 _JAR = Path(__file__).parent.parent / "jars" / "flink-sql-connector-kafka-4.0.1-2.0.jar"
 
-_OPS = {
-    "<":  operator.lt,
-    ">":  operator.gt,
-    "<=": operator.le,
-    ">=": operator.ge,
-    "==": operator.eq,
-}
-
-
-def _asset_class(source: str) -> str:
-    if source.startswith("vnstock"):
-        return "stock"
-    if source.startswith("ccxt"):
-        return "crypto"
-    return "unknown"
+from producers.utils import ALERT_OPS, asset_class
 
 
 def run() -> None:
@@ -76,7 +61,7 @@ def run() -> None:
 
         def process_element(self, msg: dict, ctx: "KeyedProcessFunction.Context"):
             source      = msg.get("source", "")
-            asset_class = _asset_class(source)
+            asset_class_ = asset_class(source)
             symbol      = msg.get("symbol", "")
             payload     = msg.get("payload", {})
             price       = payload.get("price", 0.0)
@@ -87,7 +72,7 @@ def run() -> None:
 
             for rule in rules:
                 rule_source = rule.get("source", "*")
-                if rule_source != "*" and rule_source != asset_class:
+                if rule_source != "*" and rule_source != asset_class_:
                     continue
                 if rule["symbol"] != "*" and rule["symbol"] != symbol:
                     continue
@@ -95,7 +80,7 @@ def run() -> None:
                 value = payload.get(field)
                 if value is None:
                     continue
-                op_fn = _OPS.get(rule["operator"])
+                op_fn = ALERT_OPS.get(rule["operator"])
                 if op_fn and op_fn(value, rule["threshold"]):
                     alert = (
                         f"[ALERT {ts}] {symbol:10s} | {rule['message']}"

@@ -1,39 +1,47 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
-        run-price-producer run-ohlcv-producer \
-        run-crypto-price-producer run-crypto-ohlcv-producer \
+        run-stock-price-producer run-ohlcv-daily-ingest \
+        run-crypto-price-producer \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
         run-technical run-digest run-screener \
+        spark-build spark-history-server \
         test test-unit test-integration
 
-PYTHON := .venv/bin/python
-PIP    := .venv/bin/pip
+PYTHON  := .venv/bin/python
+PIP     := .venv/bin/pip
+COMPOSE := docker compose -f docker/docker-compose.yml
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
 	read -p "  MinIO (object storage)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
+	read -p "  Spark (Master + Worker)? [y/n] " sp; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
 		if [ "$$k" = "y" ]; then services="$$services kafka kafka-ui"; fi; \
 		if [ "$$m" = "y" ]; then services="$$services minio"; fi; \
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
+		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
-			docker compose build flink-jobmanager flink-taskmanager; \
+			$(COMPOSE) build flink-jobmanager flink-taskmanager; \
 			echo "Downloading Flink Kafka connector JAR (local mode)..."; \
 			mkdir -p jars; \
 			curl -fL -o jars/flink-sql-connector-kafka-4.0.1-2.0.jar \
 				"https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/4.0.1-2.0/flink-sql-connector-kafka-4.0.1-2.0.jar"; \
 			echo "JAR ready in jars/"; \
 		fi; \
+		if [ "$$sp" = "y" ]; then \
+			echo "Building Spark Docker image (downloads S3A JARs — takes a moment)..."; \
+			$(COMPOSE) build spark-master spark-worker; \
+		fi; \
 		echo "Starting:$$services"; \
-		docker compose up -d $$services; \
+		$(COMPOSE) up -d $$services; \
 		if [ "$$m" = "y" ]; then \
 			echo "Waiting for MinIO..."; \
 			until curl -sf http://localhost:9000/minio/health/live 2>/dev/null; do \
@@ -63,17 +71,17 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	else \
 		if [ "$$k" = "y" ]; then \
 			echo "Removing Kafka + Kafka UI..."; \
-			docker compose rm -sf kafka kafka-ui; \
+			$(COMPOSE) rm -sf kafka kafka-ui; \
 			docker volume ls -q | grep kafka_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		if [ "$$m" = "y" ]; then \
 			echo "Removing MinIO..."; \
-			docker compose rm -sf minio; \
+			$(COMPOSE) rm -sf minio; \
 			docker volume ls -q | grep minio_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Removing Flink..."; \
-			docker compose rm -sf flink-jobmanager flink-taskmanager; \
+			$(COMPOSE) rm -sf flink-jobmanager flink-taskmanager; \
 		fi; \
 		echo "Uninstall complete."; \
 	fi
@@ -82,24 +90,29 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic stock.price.realtime  --partitions 6 --replication-factor 1
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic stock.ohlcv.daily     --partitions 6 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic stock.financials       --partitions 3 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic crypto.price.realtime --partitions 6 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic crypto.ohlcv.daily    --partitions 6 --replication-factor 1
 
-minio-init: ## Create the market-data bucket in MinIO (safe to re-run)
-	$(PYTHON) db/init_minio.py
+minio-init: ## Create the market-data and market-analysis bucket in MinIO (safe to re-run)
+	PYTHONPATH=. $(PYTHON) db/init_minio.py
 
-storage-flush: ## Delete all Avro objects from MinIO (irreversible)
-	@echo "WARNING: this permanently deletes all data in the market-data bucket."
-	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
-	$(PYTHON) db/flush_minio.py
+storage-flush: ## Selectively delete objects from MinIO buckets (irreversible)
+	@echo "WARNING: this permanently deletes all data from selected buckets."
+	@read -p "  Delete market-data (raw price snapshots)? [y/n] " md; \
+	read -p "  Delete market-analysis (OHLCV bars)? [y/n] " ma; \
+	if [ "$$md" != "y" ] && [ "$$ma" != "y" ]; then \
+		echo "Nothing selected — aborted."; \
+	else \
+		if [ "$$md" = "y" ]; then \
+			PYTHONPATH=. $(PYTHON) db/flush_minio.py market-data; \
+		fi; \
+		if [ "$$ma" = "y" ]; then \
+			PYTHONPATH=. $(PYTHON) db/flush_minio.py market-analysis; \
+		fi; \
+		echo "Flush complete."; \
+	fi
 
 run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
-	docker compose up -d
+	$(COMPOSE) up -d
 
 # ── Running ───────────────────────────────────────────────────────────────────
 run-smoke-producer:   ## [Phase 2] Send one hardcoded VCB message to Kafka
@@ -108,17 +121,24 @@ run-smoke-producer:   ## [Phase 2] Send one hardcoded VCB message to Kafka
 run-smoke-consumer:   ## [Phase 2] Print messages arriving on stock.price.realtime
 	$(PYTHON) main.py smoke-consumer
 
-run-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
-	$(PYTHON) main.py price-producer
+run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
+	$(PYTHON) main.py stock-price-producer
 
-run-ohlcv-producer:         ## Fetch daily OHLCV → Kafka
-	$(PYTHON) main.py ohlcv-producer
+spark-build: ## Build (or rebuild) the Spark Docker image
+	$(COMPOSE) build spark-master spark-worker spark-history-server
+
+run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
+	docker exec spark-master bash -c '\
+		PYTHONPATH=/opt/project /opt/spark/bin/spark-submit \
+			--master spark://spark-master:7077 \
+			--conf "spark.executorEnv.PYTHONPATH=/opt/project" \
+			--conf "spark.executorEnv.MINIO_ENDPOINT=$$MINIO_ENDPOINT" \
+			--conf "spark.executorEnv.MINIO_ACCESS_KEY=$$MINIO_ACCESS_KEY" \
+			--conf "spark.executorEnv.MINIO_SECRET_KEY=$$MINIO_SECRET_KEY" \
+		/opt/project/main.py ohlcv-daily-ingest'
 
 run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s)
 	$(PYTHON) main.py crypto-price-producer
-
-run-crypto-ohlcv-producer:  ## Fetch crypto daily OHLCV → Kafka
-	$(PYTHON) main.py crypto-ohlcv-producer
 
 run-storage-consumer: ## Kafka → MinIO (Avro)
 	$(PYTHON) main.py storage-consumer

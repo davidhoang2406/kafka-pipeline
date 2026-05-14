@@ -48,8 +48,8 @@ services:
       - "9000:9000"   # S3 API
       - "9001:9001"   # Web console → http://localhost:9001
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -62,8 +62,8 @@ services:
 
   flink-jobmanager:
     build:
-      context: .
-      dockerfile: flink.Dockerfile
+      context: ..
+      dockerfile: docker/flink.Dockerfile
     container_name: flink-jobmanager
     command: jobmanager
     ports:
@@ -73,15 +73,15 @@ services:
         jobmanager.rpc.address: flink-jobmanager
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # internal listener for jobs running in-container
     volumes:
-      - .:/opt/project                        # project files available to flink run-python
+      - ..:/opt/project                       # project files available to flink run-python
     depends_on:
       kafka:
         condition: service_healthy
 
   flink-taskmanager:
     build:
-      context: .
-      dockerfile: flink.Dockerfile
+      context: ..
+      dockerfile: docker/flink.Dockerfile
     container_name: flink-taskmanager
     command: taskmanager
     environment:
@@ -90,10 +90,79 @@ services:
         taskmanager.numberOfTaskSlots: 4
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     volumes:
-      - .:/opt/project
+      - ..:/opt/project
     depends_on:
       - flink-jobmanager
+
+  spark-master:
+    build:
+      context: ..
+      dockerfile: docker/spark.Dockerfile
+    container_name: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    environment:
+      SPARK_MASTER_HOST: spark-master
+      PYTHONPATH: /opt/project
+      # Override .env so jobs reach MinIO via the Docker network
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
+      SPARK_MASTER_URL: spark://spark-master:7077
+    ports:
+      - "7077:7077"   # Spark submit port
+      - "8082:8080"   # Spark Master Web UI → http://localhost:8082
+    volumes:
+      - ..:/opt/project
+      - spark_logs:/tmp/spark-events   # event logs read by history server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  spark-worker:
+    build:
+      context: ..
+      dockerfile: docker/spark.Dockerfile
+    container_name: spark-worker
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: "2"
+      PYTHONPATH: /opt/project
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
+    volumes:
+      - ..:/opt/project
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+  spark-history-server:
+    build:
+      context: ..
+      dockerfile: docker/spark.Dockerfile
+    container_name: spark-history-server
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    environment:
+      SPARK_HISTORY_OPTS: >-
+        -Dspark.history.fs.logDirectory=/tmp/spark-events
+        -Dspark.history.ui.port=18080
+    ports:
+      - "18080:18080"   # Spark History Server UI → http://localhost:18080
+    volumes:
+      - spark_logs:/tmp/spark-events
+    depends_on:
+      spark-master:
+        condition: service_healthy
 
 volumes:
   kafka_data:
   minio_data:
+  spark_logs:

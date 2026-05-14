@@ -1,29 +1,29 @@
-# Deletes all Parquet objects from the market-data bucket (irreversible).
-# Called by `make storage-flush` after the user confirms the operation.
+# Deletes all objects from the given MinIO bucket (irreversible).
+# Usage: python db/flush_minio.py <bucket>
+# Called by `make storage-flush` after the user selects which buckets to clear.
+import argparse
 import os
 
 from dotenv import load_dotenv
-from minio import Minio
+
+from model.minio_store import MinioStore
 
 load_dotenv()
 
 
-def run() -> None:
-    endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-    secure   = endpoint.startswith("https://")
-    host     = endpoint.split("://", 1)[-1]
-    client   = Minio(
-        host,
-        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-        secure=secure,
-    )
-    bucket = os.getenv("MINIO_BUCKET", "market-data")
-    objs   = list(client.list_objects(bucket, recursive=True))
-    for obj in objs:
-        client.remove_object(bucket, obj.object_name)
-    print(f"Deleted {len(objs)} objects from {bucket}.")
+def run(bucket: str) -> None:
+    store = MinioStore(bucket)
+    n     = store.flush_all()
+    print(f"Deleted {n} objects from '{store.bucket}'.")
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Flush all objects from a MinIO bucket.")
+    parser.add_argument(
+        "bucket",
+        nargs="?",
+        default=os.getenv("MINIO_BUCKET", "market-data"),
+        help="Bucket to flush (default: $MINIO_BUCKET or market-data)",
+    )
+    args = parser.parse_args()
+    run(args.bucket)

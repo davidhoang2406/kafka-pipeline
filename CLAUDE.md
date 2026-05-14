@@ -81,6 +81,6 @@ See `DESIGN.md` for the full design document and `architecture.drawio` for the s
 
 **Storage layout:** `s3://market-data/{event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro` — partitioned by event type, symbol, year, month, and day. Files are deflate-compressed Avro (fastavro).
 
-**Kafka topics:** `stock.price.realtime` · `stock.ohlcv.daily` · `stock.financials` — all partitioned by stock symbol.
+**Kafka topics:** `stock.price.realtime` · `crypto.price.realtime` — real-time price snapshots only. OHLCV and financials are batch-ingested directly to MinIO, not routed through Kafka.
 
-**Key calibration:** poll interval and watchlist symbols live in `config/symbols.json`. Analysis filter thresholds live in `config/screener.json` (created in Phase 9).
+**Key calibration:** poll interval and symbols live in `config/stocks.json` (stocks) and `config/crypto.json` (crypto). Analysis filter thresholds live in `config/screener.json` (created in Phase 9).
