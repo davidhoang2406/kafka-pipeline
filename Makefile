@@ -4,7 +4,7 @@
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
         run-technical run-digest run-screener \
-        spark-build \
+        spark-build spark-history-server \
         test test-unit test-integration
 
 PYTHON := .venv/bin/python
@@ -25,7 +25,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$k" = "y" ]; then services="$$services kafka kafka-ui"; fi; \
 		if [ "$$m" = "y" ]; then services="$$services minio"; fi; \
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
-		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker"; fi; \
+		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
 			docker compose build flink-jobmanager flink-taskmanager; \
@@ -124,7 +124,7 @@ run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
 	$(PYTHON) main.py stock-price-producer
 
 spark-build: ## Build (or rebuild) the Spark Docker image
-	docker compose build spark-master spark-worker
+	docker compose build spark-master spark-worker spark-history-server
 
 run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
 	docker exec spark-master \

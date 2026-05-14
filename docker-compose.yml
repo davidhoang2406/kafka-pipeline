@@ -112,9 +112,10 @@ services:
       SPARK_MASTER_URL: spark://spark-master:7077
     ports:
       - "7077:7077"   # Spark submit port
-      - "8082:8080"   # Spark Web UI → http://localhost:8082
+      - "8082:8080"   # Spark Master Web UI → http://localhost:8082
     volumes:
       - .:/opt/project
+      - spark_logs:/tmp/spark-events   # event logs read by history server
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
       interval: 15s
@@ -144,6 +145,25 @@ services:
       spark-master:
         condition: service_healthy
 
+  spark-history-server:
+    build:
+      context: .
+      dockerfile: spark.Dockerfile
+    container_name: spark-history-server
+    command: ["/opt/bitnami/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    environment:
+      SPARK_HISTORY_OPTS: >-
+        -Dspark.history.fs.logDirectory=/tmp/spark-events
+        -Dspark.history.ui.port=18080
+    ports:
+      - "18080:18080"   # Spark History Server UI → http://localhost:18080
+    volumes:
+      - spark_logs:/tmp/spark-events
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
 volumes:
   kafka_data:
   minio_data:
+  spark_logs:

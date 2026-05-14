@@ -72,6 +72,9 @@ class SparkFactory:
                  .config("spark.hadoop.fs.s3a.secret.key",        os.getenv("MINIO_SECRET_KEY", "minioadmin"))
                  .config("spark.hadoop.fs.s3a.path.style.access", "true")  # required for MinIO
                  .config("spark.hadoop.fs.s3a.impl",              "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                 # Event logging — feeds the Spark History Server at http://localhost:18080
+                 .config("spark.eventLog.enabled", "true")
+                 .config("spark.eventLog.dir",     "/tmp/spark-events")
                  .getOrCreate())
         spark.sparkContext.setLogLevel("WARN")
         return spark
