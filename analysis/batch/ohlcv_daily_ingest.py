@@ -6,8 +6,8 @@
 #   low    = minimum price across all ticks
 #   close  = price of the last tick (by time)
 #   volume = sum of all tick volumes
-# Output partition layout in market-analysis:
-#   ohlcv.bar/asset_class={stock|crypto}/symbol={symbol}/year=/month=/day=/part-{ts}.parquet
+# All bars for the same asset class are written into a single Parquet file:
+#   ohlcv.bar/asset_class={stock|crypto}/year=/month=/day=/part-{ts}.parquet
 import logging
 import os
 import time
@@ -24,7 +24,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-LOOKBACK_DAYS = 1
+LOOKBACK_DAYS = 0
 
 
 def _asset_class(symbol: str) -> str:
@@ -48,15 +48,6 @@ def _aggregate(ticks: list[dict]) -> dict:
     }
 
 
-def _write_bar(store: MinioStore, bar: dict, year: str, month: str, day: str) -> None:
-    asset  = _asset_class(bar["symbol"])
-    safe   = bar["symbol"].replace("/", "-")
-    ts_ms  = int(time.time() * 1000)
-    key    = (f"ohlcv.bar/asset_class={asset}/symbol={safe}"
-              f"/year={year}/month={month}/day={day}/part-{ts_ms}.parquet")
-    store.write_parquet(key, OHLCV_BAR_SCHEMA, [bar])
-
-
 def run() -> None:
     raw_store      = MinioStore(os.getenv("MINIO_BUCKET", "market-data"))
     analysis_store = MinioStore(os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis"))
@@ -69,6 +60,7 @@ def run() -> None:
     log.info("OHLCV daily ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
+    # Read all ticks for the target date, grouped by symbol
     symbol_ticks: dict[str, list[dict]] = defaultdict(list)
     for obj in raw_store.list_objects(prefix="price.snapshot/"):
         if date_fragment not in obj.object_name:
@@ -83,14 +75,24 @@ def run() -> None:
         log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
-    counts: dict[str, int] = defaultdict(int)
+    # Aggregate ticks per symbol and group bars by asset class
+    class_bars: dict[str, list[dict]] = defaultdict(list)
     for symbol, ticks in symbol_ticks.items():
         ticks.sort(key=lambda r: r["time"])
-        bar = _aggregate(ticks)
-        _write_bar(analysis_store, bar, year, month, day)
+        bar   = _aggregate(ticks)
         asset = _asset_class(symbol)
-        counts[asset] += 1
-        log.info("[%s] %s: %d ticks → 1 OHLCV bar", asset, symbol, len(ticks))
+        class_bars[asset].append(bar)
+        log.info("[%s] %s: %d ticks → 1 bar", asset, symbol, len(ticks))
+
+    # Write one Parquet file per asset class containing all symbols
+    ts_ms = int(time.time() * 1000)
+    for asset, bars in class_bars.items():
+        key = (f"ohlcv.bar/asset_class={asset}"
+               f"/year={year}/month={month}/day={day}/part-{ts_ms}.parquet")
+        analysis_store.write_parquet(key, OHLCV_BAR_SCHEMA, bars)
+        symbols = [b["symbol"] for b in bars]
+        log.info("[%s] wrote %d bars %s → s3://%s/%s",
+                 asset, len(bars), symbols, analysis_store.bucket, key)
 
     log.info("Done | stock=%d  crypto=%d bars written for %s",
-             counts["stock"], counts["crypto"], date_str)
+             len(class_bars.get("stock", [])), len(class_bars.get("crypto", [])), date_str)
