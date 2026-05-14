@@ -42,20 +42,23 @@ def run() -> None:
     log.info("OHLCV daily ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
-    # Lightweight existence check before spinning up Spark
-    has_data = any(date_fragment in obj.object_name
-                   for obj in raw_store.list_objects(prefix="price.snapshot/"))
-    if not has_data:
+    # Enumerate today's Avro files via MinIO SDK — concrete paths avoid S3A glob issues.
+    # (recursiveFileLookup=true disables glob expansion; passing explicit file paths is
+    # cleaner and also skips Spark's partition-column inference on the directory hierarchy.)
+    today_files = [
+        f"s3a://{raw_store.bucket}/{obj.object_name}"
+        for obj in raw_store.list_objects(prefix="price.snapshot/")
+        if date_fragment in obj.object_name and obj.object_name.endswith(".avro")
+    ]
+    if not today_files:
         log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
+    log.info("Found %d Avro files for %s", len(today_files), date_str)
+
     class_bars: dict[str, list[dict]] = defaultdict(list)
     with SparkFactory("ohlcv_daily_ingest") as spark:
-        # Read directly from MinIO via S3A — no temp dir, no download step.
-        # Glob covers asset_class=* and symbol=* levels that sit above year/month/day.
-        path = (f"s3a://{raw_store.bucket}"
-                f"/price.snapshot/*/*/year={year}/month={month}/day={day}/")
-        df = spark.read.format("avro").option("recursiveFileLookup", "true").load(path)
+        df = spark.read.format("avro").load(today_files)
 
         # open/close via struct sort (ISO 8601 strings sort lexicographically = chronologically).
         # min(struct("time","price")) picks the earliest tick; max picks the latest.
