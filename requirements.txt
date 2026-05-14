@@ -11,4 +11,5 @@ packaging==26.2
 IPython==9.13.0
 vnstock==4.0.2
 ccxt>=4.4.0
+pyspark>=3.5
 pytest>=7.4
