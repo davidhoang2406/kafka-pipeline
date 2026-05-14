@@ -1,5 +1,5 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
-        run-price-producer run-ohlcv-ingest \
+        run-price-producer run-ohlcv-daily-ingest \
         run-crypto-price-producer \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
@@ -105,8 +105,8 @@ run-smoke-consumer:   ## [Phase 2] Print messages arriving on stock.price.realti
 run-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
 	$(PYTHON) main.py price-producer
 
-run-ohlcv-ingest:           ## Derive OHLCV bars from price snapshots in MinIO (all symbols)
-	$(PYTHON) main.py ohlcv-ingest
+run-ohlcv-daily-ingest:     ## Derive daily OHLCV bars from price snapshots in MinIO
+	$(PYTHON) main.py ohlcv-daily-ingest
 
 run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s)
 	$(PYTHON) main.py crypto-price-producer

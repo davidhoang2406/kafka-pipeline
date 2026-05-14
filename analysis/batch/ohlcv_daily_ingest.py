@@ -1,15 +1,16 @@
 # Derives daily OHLCV bars from price snapshots stored in MinIO (market-data).
-# Reads all price.snapshot Avro files for the target date, groups ticks by symbol,
-# and aggregates into one bar per symbol:
+# Runs once at end of day. Reads all price.snapshot Avro files for the target date,
+# groups ticks by symbol, and aggregates into one bar per symbol:
 #   open   = price of the first tick (by time)
 #   high   = maximum price across all ticks
 #   low    = minimum price across all ticks
 #   close  = price of the last tick (by time)
 #   volume = sum of all tick volumes
-# Output is written to market-analysis as Snappy-compressed Parquet.
-# Covers all symbols (stock and crypto) in a single pass — no external API calls.
+# Output partition layout in market-analysis:
+#   ohlcv.bar/asset_class={stock|crypto}/symbol={symbol}/year=/month=/day=/part-{ts}.parquet
 import logging
 import os
+import time
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -24,6 +25,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 LOOKBACK_DAYS = 1
+
+
+def _asset_class(symbol: str) -> str:
+    """Crypto pairs contain '/' (e.g. BTC/USDT); stock tickers do not."""
+    return "crypto" if "/" in symbol else "stock"
 
 
 def _aggregate(ticks: list[dict]) -> dict:
@@ -42,6 +48,15 @@ def _aggregate(ticks: list[dict]) -> dict:
     }
 
 
+def _write_bar(store: MinioStore, bar: dict, year: str, month: str, day: str) -> None:
+    asset  = _asset_class(bar["symbol"])
+    safe   = bar["symbol"].replace("/", "-")
+    ts_ms  = int(time.time() * 1000)
+    key    = (f"ohlcv.bar/asset_class={asset}/symbol={safe}"
+              f"/year={year}/month={month}/day={day}/part-{ts_ms}.parquet")
+    store.write_parquet(key, OHLCV_BAR_SCHEMA, [bar])
+
+
 def run() -> None:
     raw_store      = MinioStore(os.getenv("MINIO_BUCKET", "market-data"))
     analysis_store = MinioStore(os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis"))
@@ -51,7 +66,7 @@ def run() -> None:
     date_str      = target.strftime("%Y-%m-%d")
     date_fragment = f"/year={year}/month={month}/day={day}/"
 
-    log.info("OHLCV ingest | date=%s | src=%s → dst=%s",
+    log.info("OHLCV daily ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
     symbol_ticks: dict[str, list[dict]] = defaultdict(list)
@@ -68,12 +83,14 @@ def run() -> None:
         log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
-    total = 0
+    counts: dict[str, int] = defaultdict(int)
     for symbol, ticks in symbol_ticks.items():
         ticks.sort(key=lambda r: r["time"])
         bar = _aggregate(ticks)
-        analysis_store.write_partitioned_parquet("ohlcv.bar", symbol, [bar], OHLCV_BAR_SCHEMA)
-        log.info("%s: %d ticks → 1 OHLCV bar", symbol, len(ticks))
-        total += 1
+        _write_bar(analysis_store, bar, year, month, day)
+        asset = _asset_class(symbol)
+        counts[asset] += 1
+        log.info("[%s] %s: %d ticks → 1 OHLCV bar", asset, symbol, len(ticks))
 
-    log.info("Done | %d OHLCV bars written for %s", total, date_str)
+    log.info("Done | stock=%d  crypto=%d bars written for %s",
+             counts["stock"], counts["crypto"], date_str)
