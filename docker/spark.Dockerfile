@@ -21,8 +21,8 @@ RUN pip3 install --no-cache-dir \
 # NumberFormatException on duration strings like "60s" introduced in Hadoop 3.4.x
 RUN curl -fL -o /opt/spark/jars/hadoop-aws-3.4.1.jar \
     "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.4.1/hadoop-aws-3.4.1.jar" \
-    && curl -fL -o /opt/spark/jars/aws-java-sdk-bundle-1.12.367.jar \
-    "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/1.12.367/aws-java-sdk-bundle-1.12.367.jar" \
+    && curl -fL -o /opt/spark/jars/aws-sdk-bundle-2.24.6.jar \
+    "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.24.6/bundle-2.24.6.jar" \
     && curl -fL -o /opt/spark/jars/spark-avro_2.13-4.1.1.jar \
     "https://repo1.maven.org/maven2/org/apache/spark/spark-avro_2.13/4.1.1/spark-avro_2.13-4.1.1.jar"
 
