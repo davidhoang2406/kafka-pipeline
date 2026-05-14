@@ -6,11 +6,12 @@ import os
 import time
 from collections import defaultdict
 
-import fastavro
 from dotenv import load_dotenv
 
 from consumers.base_consumer import BaseConsumer
 from model.minio_store import MinioStore
+from model.schemas import PRICE_SNAPSHOT_AVRO_SCHEMA
+from producers.utils import coerce_float, coerce_int
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -21,52 +22,21 @@ GROUP_ID       = "storage"
 BATCH_SIZE     = 500   # flush after this many rows total
 FLUSH_INTERVAL = 30    # also flush after this many seconds even if batch isn't full
 
-# ── Avro schemas ──────────────────────────────────────────────────────────────
-
 _SCHEMAS = {
-    "price.snapshot": fastavro.parse_schema({
-        "type": "record", "name": "PriceSnapshot",
-        "fields": [
-            {"name": "time",       "type": "string"},
-            {"name": "symbol",     "type": "string"},
-            {"name": "exchange",   "type": "string"},
-            {"name": "price",      "type": "double"},
-            {"name": "change",     "type": "double"},
-            {"name": "pct_change", "type": "double"},
-            {"name": "volume",     "type": "long"},
-            {"name": "bid",        "type": "double"},
-            {"name": "ask",        "type": "double"},
-        ],
-    }),
+    "price.snapshot": PRICE_SNAPSHOT_AVRO_SCHEMA,
 }
-
-# ── Row extractors ────────────────────────────────────────────────────────────
-
-def _f(v) -> float:
-    try:
-        return float(v or 0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _i(v) -> int:
-    try:
-        return int(v or 0)
-    except (TypeError, ValueError):
-        return 0
-
 
 _EXTRACTORS = {
     "price.snapshot": lambda m: {
         "time":       m["timestamp"],
         "symbol":     m["symbol"],
         "exchange":   m.get("exchange", ""),
-        "price":      _f(m["payload"].get("price")),
-        "change":     _f(m["payload"].get("change")),
-        "pct_change": _f(m["payload"].get("pct_change")),
-        "volume":     _i(m["payload"].get("volume")),
-        "bid":        _f(m["payload"].get("bid")),
-        "ask":        _f(m["payload"].get("ask")),
+        "price":      coerce_float(m["payload"].get("price")),
+        "change":     coerce_float(m["payload"].get("change")),
+        "pct_change": coerce_float(m["payload"].get("pct_change")),
+        "volume":     coerce_int(m["payload"].get("volume")),
+        "bid":        coerce_float(m["payload"].get("bid")),
+        "ask":        coerce_float(m["payload"].get("ask")),
     },
 }
 
