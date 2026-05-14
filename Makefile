@@ -84,13 +84,13 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic crypto.price.realtime --partitions 6 --replication-factor 1
 
-minio-init: ## Create the market-data bucket in MinIO (safe to re-run)
-	$(PYTHON) db/init_minio.py
+minio-init: ## Create the market-data and market-analysis bucket in MinIO (safe to re-run)
+	PYTHONPATH=. $(PYTHON) db/init_minio.py
 
-storage-flush: ## Delete all Avro objects from MinIO (irreversible)
+storage-flush: ## Delete all objects from MinIO (irreversible)
 	@echo "WARNING: this permanently deletes all data in the market-data bucket."
 	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
-	$(PYTHON) db/flush_minio.py
+	PYTHONPATH=. $(PYTHON) db/flush_minio.py
 
 run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
 	docker compose up -d
