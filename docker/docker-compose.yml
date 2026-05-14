@@ -144,6 +144,27 @@ services:
       spark-master:
         condition: service_healthy
 
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/jupyter.Dockerfile
+    container_name: jupyter
+    ports:
+      - "8888:8888"   # JupyterLab UI → http://localhost:8888 (no token required)
+    environment:
+      PYTHONPATH: /opt/project
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    volumes:
+      - ..:/opt/project
+    depends_on:
+      minio:
+        condition: service_healthy
+
   spark-history-server:
     build:
       context: ..

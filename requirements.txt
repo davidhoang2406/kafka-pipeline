@@ -12,6 +12,5 @@ IPython==9.13.0
 vnstock==4.0.2
 ccxt>=4.4.0
 pyspark==4.1.1
-jupyterlab>=4.2
 matplotlib>=3.9
 pytest>=7.4

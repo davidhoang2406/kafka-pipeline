@@ -83,6 +83,7 @@ make run-ohlcv-daily-ingest      # Derive OHLCV bars from today's snapshots → 
 | Flink Web UI | http://localhost:8081 | — |
 | Spark Master Web UI | http://localhost:8082 | — |
 | Spark History Server | http://localhost:18080 | — |
+| JupyterLab | http://localhost:8888 | no token |
 
 ## Storage Layout
 
@@ -95,6 +96,17 @@ price.snapshot/asset_class={stock|crypto}/symbol={SYM}/year={Y}/month={M}/day={D
 ```
 ohlcv.bar/asset_class={stock|crypto}/year={Y}/month={M}/day={D}/part-{ts}.parquet
 ```
+
+## Jupyter
+
+JupyterLab runs as a Docker service — no local install needed:
+
+```bash
+make jupyter-build   # build the image once (downloads S3A JARs — takes a moment)
+make jupyter         # start → http://localhost:8888 (no token)
+```
+
+Starter notebooks in `notebooks/`: price snapshot explorer, OHLCV analysis with technical indicators, and a Spark query playground using `SparkFactory` + S3A in `local[*]` mode.
 
 ## Spark Cluster
 

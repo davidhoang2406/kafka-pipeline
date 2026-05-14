@@ -52,16 +52,19 @@ make run-ohlcv-daily-ingest      # Spark: derive OHLCV bars from today's snapsho
 
 ## Jupyter
 
+Runs as a Docker service (no local install needed):
+
 ```bash
-make jupyter    # starts JupyterLab at http://localhost:8888, rooted at notebooks/
+make jupyter-build   # build the image (first time or after requirements change)
+make jupyter         # start container → http://localhost:8888 (no token)
 ```
 
-Three starter notebooks are in `notebooks/`:
+Three starter notebooks in `notebooks/`:
 - `01_price_snapshots.ipynb` — explore raw Avro files from MinIO
 - `02_ohlcv_analysis.ipynb` — OHLCV charts + SMA/RSI/MACD/BB via `ta`
-- `03_spark_query.ipynb` — cross-day queries using SparkFactory + S3A
+- `03_spark_query.ipynb` — cross-day queries using SparkFactory + S3A (local[*] mode, JARs pre-baked in image)
 
-All notebooks use `PYTHONPATH=.` (set by the Makefile target) so `from model.minio_store import MinioStore` etc. resolve correctly.
+Inside the container `PYTHONPATH=/opt/project` is set, and MinIO/Kafka are reached via their Docker service names (`minio:9000`, `kafka:29092`).
 
 ## Git Workflow
 
