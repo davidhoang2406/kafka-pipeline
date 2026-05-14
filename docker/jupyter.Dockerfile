@@ -3,8 +3,11 @@ FROM python:3.12-slim
 USER root
 
 RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends curl default-jre-headless && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -sf /usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture) /usr/lib/jvm/java-17-openjdk
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt jupyterlab>=4.2
