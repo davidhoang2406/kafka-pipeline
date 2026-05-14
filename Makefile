@@ -82,13 +82,7 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic stock.price.realtime  --partitions 6 --replication-factor 1
 	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic stock.ohlcv.daily     --partitions 6 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic stock.financials       --partitions 3 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
 		--create --if-not-exists --topic crypto.price.realtime --partitions 6 --replication-factor 1
-	docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
-		--create --if-not-exists --topic crypto.ohlcv.daily    --partitions 6 --replication-factor 1
 
 minio-init: ## Create the market-data bucket in MinIO (safe to re-run)
 	$(PYTHON) db/init_minio.py

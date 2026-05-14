@@ -28,10 +28,9 @@ Crypto API   ──┘                       └──► Flink Jobs ──► A
 | Topic | Partitions | Purpose |
 |---|---|---|
 | `stock.price.realtime` | 6 | Live stock price snapshots (every 30 s) |
-| `stock.ohlcv.daily` | 6 | End-of-day OHLCV bars |
-| `stock.financials` | 3 | Quarterly financial statements |
 | `crypto.price.realtime` | 6 | Live crypto ticker snapshots (every 60 s) |
-| `crypto.ohlcv.daily` | 6 | End-of-day crypto OHLCV bars |
+
+OHLCV bars and financial statements are batch-ingested directly into MinIO — they do not flow through Kafka.
 
 All messages share a common JSON envelope:
 

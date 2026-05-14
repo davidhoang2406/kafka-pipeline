@@ -18,7 +18,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-TOPICS         = ["stock.price.realtime", "stock.financials", "crypto.price.realtime"]
+TOPICS         = ["stock.price.realtime", "crypto.price.realtime"]
 GROUP_ID       = "storage"
 BATCH_SIZE     = 500   # flush after this many rows total
 FLUSH_INTERVAL = 30    # also flush after this many seconds even if batch isn't full
@@ -38,32 +38,6 @@ _SCHEMAS = {
             {"name": "volume",     "type": "long"},
             {"name": "bid",        "type": "double"},
             {"name": "ask",        "type": "double"},
-        ],
-    }),
-    "ohlcv.bar": fastavro.parse_schema({
-        "type": "record", "name": "OhlcvBar",
-        "fields": [
-            {"name": "time",     "type": "string"},
-            {"name": "symbol",   "type": "string"},
-            {"name": "exchange", "type": "string"},
-            {"name": "open",     "type": "double"},
-            {"name": "high",     "type": "double"},
-            {"name": "low",      "type": "double"},
-            {"name": "close",    "type": "double"},
-            {"name": "volume",   "type": "long"},
-        ],
-    }),
-    "financials.report": fastavro.parse_schema({
-        "type": "record", "name": "FinancialsReport",
-        "fields": [
-            {"name": "report_date",  "type": "string"},
-            {"name": "symbol",       "type": "string"},
-            {"name": "period",       "type": "string"},
-            {"name": "revenue",      "type": "double"},
-            {"name": "net_income",   "type": "double"},
-            {"name": "total_assets", "type": "double"},
-            {"name": "total_debt",   "type": "double"},
-            {"name": "eps",          "type": "double"},
         ],
     }),
 }
@@ -95,26 +69,6 @@ _EXTRACTORS = {
         "volume":     _i(m["payload"].get("volume")),
         "bid":        _f(m["payload"].get("bid")),
         "ask":        _f(m["payload"].get("ask")),
-    },
-    "ohlcv.bar": lambda m: {
-        "time":     m["timestamp"],
-        "symbol":   m["symbol"],
-        "exchange": m.get("exchange", ""),
-        "open":     _f(m["payload"].get("open")),
-        "high":     _f(m["payload"].get("high")),
-        "low":      _f(m["payload"].get("low")),
-        "close":    _f(m["payload"].get("close")),
-        "volume":   _i(m["payload"].get("volume")),
-    },
-    "financials.report": lambda m: {
-        "report_date":  m["payload"].get("report_date", m["timestamp"][:10]),
-        "symbol":       m["symbol"],
-        "period":       m["payload"].get("period", ""),
-        "revenue":      _f(m["payload"].get("revenue")),
-        "net_income":   _f(m["payload"].get("net_income")),
-        "total_assets": _f(m["payload"].get("total_assets")),
-        "total_debt":   _f(m["payload"].get("total_debt")),
-        "eps":          _f(m["payload"].get("eps")),
     },
 }
 
