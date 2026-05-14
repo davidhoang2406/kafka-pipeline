@@ -54,7 +54,7 @@ def test_buffer_accumulates_multiple_rows():
     buf = _Buffer(_mock_store())
     for i in range(5):
         buf.add(_msg("price.snapshot", price=float(i)))
-    assert len(buf._rows["price.snapshot"]) == 5
+    assert buf.total_rows() == 5
 
 
 @pytest.mark.unit

@@ -1,5 +1,5 @@
 # Subscribes to Kafka price topics and persists messages to MinIO as partitioned Avro files.
-# Partition layout: {event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro
+# Partition layout: {event_type}/asset_class={stock|crypto}/symbol={symbol}/year=/month=/day=/part-{ts}.avro
 # Batches writes (up to 500 rows or 30 s) to keep file sizes reasonable.
 import logging
 import os
@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from consumers.base_consumer import BaseConsumer
 from model.minio_store import MinioStore
 from model.schemas import PRICE_SNAPSHOT_AVRO_SCHEMA
-from producers.utils import coerce_float, coerce_int
+from producers.utils import asset_class, coerce_float, coerce_int
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -52,7 +52,7 @@ def _date_parts(date: str) -> tuple[str, str, str]:
 
 class _Buffer:
     """
-    Accumulates rows keyed by (event_type, symbol, year, month, day).
+    Accumulates rows keyed by (event_type, asset_class, symbol, year, month, day).
     On flush, writes one Avro file per key to MinIO.
     """
 
@@ -65,11 +65,12 @@ class _Buffer:
         event_type = msg.get("event_type")
         if event_type not in _EXTRACTORS:
             return
-        row    = _EXTRACTORS[event_type](msg)
-        symbol = msg.get("symbol", "UNKNOWN")
-        date   = msg.get("timestamp", "")[:10] or "unknown"
+        row        = _EXTRACTORS[event_type](msg)
+        symbol     = msg.get("symbol", "UNKNOWN")
+        ac         = asset_class(msg.get("source", ""))
+        date       = msg.get("timestamp", "")[:10] or "unknown"
         year, month, day = _date_parts(date)
-        self._rows[(event_type, symbol, year, month, day)].append(row)
+        self._rows[(event_type, ac, symbol, year, month, day)].append(row)
 
     def total_rows(self) -> int:
         return sum(len(v) for v in self._rows.values())
@@ -86,8 +87,8 @@ class _Buffer:
             return
 
         ts_ms = int(time.time() * 1000)
-        for (event_type, symbol, year, month, day), rows in self._rows.items():
-            key    = (f"{event_type}/symbol={symbol}"
+        for (event_type, ac, symbol, year, month, day), rows in self._rows.items():
+            key    = (f"{event_type}/asset_class={ac}/symbol={symbol}"
                       f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
             schema = _SCHEMAS[event_type]
             self._store.write_avro(key, schema, rows)
