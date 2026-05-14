@@ -128,15 +128,14 @@ spark-build: ## Build (or rebuild) the Spark Docker image
 	$(COMPOSE) build spark-master spark-worker spark-history-server
 
 run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
-	docker exec spark-master \
-		env PYTHONPATH=/opt/project \
-		spark-submit \
+	docker exec spark-master bash -c '\
+		PYTHONPATH=/opt/project spark-submit \
 			--master spark://spark-master:7077 \
 			--conf "spark.executorEnv.PYTHONPATH=/opt/project" \
-			--conf "spark.executorEnv.MINIO_ENDPOINT=http://minio:9000" \
-			--conf "spark.executorEnv.MINIO_ACCESS_KEY=minioadmin" \
-			--conf "spark.executorEnv.MINIO_SECRET_KEY=minioadmin" \
-		/opt/project/main.py ohlcv-daily-ingest
+			--conf "spark.executorEnv.MINIO_ENDPOINT=$$MINIO_ENDPOINT" \
+			--conf "spark.executorEnv.MINIO_ACCESS_KEY=$$MINIO_ACCESS_KEY" \
+			--conf "spark.executorEnv.MINIO_SECRET_KEY=$$MINIO_SECRET_KEY" \
+		/opt/project/main.py ohlcv-daily-ingest'
 
 run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s)
 	$(PYTHON) main.py crypto-price-producer
