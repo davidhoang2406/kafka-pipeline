@@ -15,11 +15,11 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from dotenv import load_dotenv
-from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 from model.minio_store import MinioStore
 from model.schemas import OHLCV_BAR_SCHEMA
+from model.spark import build_spark
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -28,23 +28,6 @@ log = logging.getLogger(__name__)
 LOOKBACK_DAYS = 0
 
 _COL_ORDER = ["time", "symbol", "exchange", "open", "high", "low", "close", "volume"]
-
-
-def _build_spark() -> SparkSession:
-    return (SparkSession.builder
-            .appName("ohlcv_daily_ingest")
-            .master("local[*]")
-            # S3A connector jars — downloaded once by Spark's package resolver
-            .config("spark.jars.packages",
-                    "org.apache.hadoop:hadoop-aws:3.3.4,"
-                    "com.amazonaws:aws-java-sdk-bundle:1.12.262")
-            # Point S3A at the local MinIO instance
-            .config("spark.hadoop.fs.s3a.endpoint",          os.getenv("MINIO_ENDPOINT", "http://localhost:9000"))
-            .config("spark.hadoop.fs.s3a.access.key",        os.getenv("MINIO_ACCESS_KEY", "minioadmin"))
-            .config("spark.hadoop.fs.s3a.secret.key",        os.getenv("MINIO_SECRET_KEY", "minioadmin"))
-            .config("spark.hadoop.fs.s3a.path.style.access", "true")  # required for MinIO
-            .config("spark.hadoop.fs.s3a.impl",              "org.apache.hadoop.fs.s3a.S3AFileSystem")
-            .getOrCreate())
 
 
 def run() -> None:
@@ -66,7 +49,7 @@ def run() -> None:
         log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
-    spark = _build_spark()
+    spark = build_spark("ohlcv_daily_ingest")
     spark.sparkContext.setLogLevel("WARN")
 
     class_bars: dict[str, list[dict]] = defaultdict(list)
