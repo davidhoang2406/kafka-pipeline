@@ -1,6 +1,6 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
         run-price-producer run-ohlcv-ingest-stock \
-        run-crypto-price-producer run-ohlcv-ingest-crypto \
+        run-crypto-price-producer run-ohlcv-ingest-crypto run-ohlcv-derive \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
         run-technical run-digest run-screener \
@@ -113,6 +113,9 @@ run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s
 
 run-ohlcv-ingest-crypto:    ## Fetch crypto daily OHLCV → MinIO
 	$(PYTHON) main.py ohlcv-ingest-crypto
+
+run-ohlcv-derive:           ## Derive OHLCV bars from price snapshots in MinIO
+	$(PYTHON) main.py ohlcv-derive
 
 run-storage-consumer: ## Kafka → MinIO (Avro)
 	$(PYTHON) main.py storage-consumer

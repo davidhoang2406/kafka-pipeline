@@ -8,9 +8,10 @@ def main():
     sub.add_parser("smoke-producer",        help="[Phase 2] Send one hardcoded message to Kafka")
     sub.add_parser("smoke-consumer",        help="[Phase 2] Print every message on stock.price.realtime")
     sub.add_parser("price-producer",        help="Poll vnstock price board → Kafka (every 5 min)")
-    sub.add_parser("ohlcv-ingest-stock",     help="Fetch daily stock OHLCV → MinIO; financials → Kafka")
+    sub.add_parser("ohlcv-ingest-stock",     help="Fetch daily stock OHLCV → MinIO (vnstock)")
     sub.add_parser("crypto-price-producer", help="Poll crypto exchange prices → Kafka (every 60 s)")
-    sub.add_parser("ohlcv-ingest-crypto",   help="Fetch crypto daily OHLCV → MinIO")
+    sub.add_parser("ohlcv-ingest-crypto",   help="Fetch crypto daily OHLCV → MinIO (CCXT)")
+    sub.add_parser("ohlcv-derive",          help="Derive OHLCV bars from price snapshots in MinIO")
     sub.add_parser("storage-consumer",      help="Consume all topics and write to MinIO as Avro")
     sub.add_parser("alert-consumer",        help="Consume price topic and fire threshold alerts")
     sub.add_parser("flink-alert",           help="[Phase 8] Flink DataStream job: price alerts via KeyedProcessFunction")
@@ -66,6 +67,9 @@ def main():
         run()
     elif args.command == "ohlcv-ingest-crypto":
         from analysis.batch.ohlcv_ingest_crypto import run
+        run()
+    elif args.command == "ohlcv-derive":
+        from analysis.batch.ohlcv_derive import run
         run()
     elif args.command == "storage-consumer":
         from consumers.storage_consumer import run

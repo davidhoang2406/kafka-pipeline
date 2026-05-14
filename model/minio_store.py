@@ -151,6 +151,15 @@ class MinioStore:
         """Return a streaming HTTP response for the given object key."""
         return self._client.get_object(self.bucket, key)
 
+    def read_avro(self, key: str) -> list[dict]:
+        """Download an Avro file by key and return all records as a list of dicts."""
+        response = self.get_object(key)
+        try:
+            return list(fastavro.reader(io.BytesIO(response.read())))
+        finally:
+            response.close()
+            response.release_conn()
+
     def delete_object(self, key: str) -> None:
         """Delete a single object by key."""
         self._client.remove_object(self.bucket, key)
