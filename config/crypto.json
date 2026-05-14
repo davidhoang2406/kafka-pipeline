@@ -1,6 +1,5 @@
 {
   "exchange": "binance",
   "symbols": ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT"],
-  "poll_interval_seconds": 60,
-  "ohlcv_lookback_days": 1
+  "poll_interval_seconds": 5
 }
