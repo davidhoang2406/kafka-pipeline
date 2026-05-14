@@ -1,8 +1,6 @@
-# Subscribes to all five Kafka topics (stock + crypto) and persists messages to MinIO
-# as partitioned Avro files (deflate-compressed).
+# Subscribes to Kafka price topics and persists messages to MinIO as partitioned Avro files.
 # Partition layout: {event_type}/symbol={symbol}/year={year}/month={month}/day={day}/part-{ts}.avro
 # Batches writes (up to 500 rows or 30 s) to keep file sizes reasonable.
-import io
 import logging
 import os
 import time
@@ -10,9 +8,9 @@ from collections import defaultdict
 
 import fastavro
 from dotenv import load_dotenv
-from minio import Minio
 
 from consumers.base_consumer import BaseConsumer
+from model.minio_store import MinioStore
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -88,9 +86,8 @@ class _Buffer:
     On flush, writes one Avro file per key to MinIO.
     """
 
-    def __init__(self, client: Minio, bucket: str):
-        self._client     = client
-        self._bucket     = bucket
+    def __init__(self, store: MinioStore):
+        self._store      = store
         self._rows: dict[tuple, list] = defaultdict(list)
         self._last_flush = time.monotonic()
 
@@ -123,14 +120,7 @@ class _Buffer:
             key    = (f"{event_type}/symbol={symbol}"
                       f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
             schema = _SCHEMAS[event_type]
-            buf    = io.BytesIO()
-            fastavro.writer(buf, schema, rows, codec="deflate")
-            data   = buf.getvalue()
-            self._client.put_object(
-                self._bucket, key, io.BytesIO(data), len(data),
-                content_type="avro/binary",
-            )
-            log.info("wrote %3d rows → s3://%s/%s", len(rows), self._bucket, key)
+            self._store.write_avro(key, schema, rows)
 
         self._rows.clear()
         self._last_flush = time.monotonic()
@@ -138,23 +128,11 @@ class _Buffer:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-def _make_client() -> Minio:
-    endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-    secure   = endpoint.startswith("https://")
-    host     = endpoint.split("://", 1)[-1]
-    return Minio(
-        host,
-        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-        secure=secure,
-    )
-
-
 def run() -> None:
-    bucket = os.getenv("MINIO_BUCKET", "market-data")
-    buf    = _Buffer(_make_client(), bucket)
+    store = MinioStore(os.getenv("MINIO_BUCKET", "market-data"))
+    buf   = _Buffer(store)
 
-    log.info("StorageConsumer started | bucket=%s | topics=%s", bucket, TOPICS)
+    log.info("StorageConsumer started | bucket=%s | topics=%s", store.bucket, TOPICS)
 
     with BaseConsumer(TOPICS, group_id=GROUP_ID) as consumer:
         while True:

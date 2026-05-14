@@ -1,58 +1,27 @@
 # Creates MinIO buckets and applies lifecycle rules. Safe to re-run — idempotent.
-#   market-data     — raw streaming data (price snapshots, financials); 30-day expiry
-#   market-analysis — batch OHLCV bars (stock + crypto); no expiry (kept indefinitely)
+#   market-data     — raw streaming data (price snapshots); 30-day expiry
+#   market-analysis — batch OHLCV bars (stock + crypto); no expiry
 import os
 
 from dotenv import load_dotenv
-from minio import Minio
-from minio.lifecycleconfig import Expiration, Filter, LifecycleConfig, Rule
+
+from model.minio_store import MinioStore
 
 load_dotenv()
 
-RAW_BUCKET      = os.getenv("MINIO_BUCKET", "market-data")
-ANALYSIS_BUCKET = os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis")
-RETENTION_DAYS  = 30
-
-
-def _make_client() -> Minio:
-    endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-    secure   = endpoint.startswith("https://")
-    host     = endpoint.split("://", 1)[-1]
-    return Minio(
-        host,
-        access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-        secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
-        secure=secure,
-    )
-
-
-def _ensure_bucket(client: Minio, bucket: str) -> None:
-    if client.bucket_exists(bucket):
-        print(f"Bucket '{bucket}' already exists.")
-    else:
-        client.make_bucket(bucket)
-        print(f"Bucket '{bucket}' created.")
+RETENTION_DAYS = 30
 
 
 def run() -> None:
-    client = _make_client()
+    raw      = MinioStore(os.getenv("MINIO_BUCKET", "market-data"))
+    analysis = MinioStore(os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis"))
 
-    _ensure_bucket(client, RAW_BUCKET)
-    lifecycle = LifecycleConfig(
-        [
-            Rule(
-                "Enabled",
-                rule_filter=Filter(prefix=""),
-                rule_id="expire-after-30-days",
-                expiration=Expiration(days=RETENTION_DAYS),
-            ),
-        ]
-    )
-    client.set_bucket_lifecycle(RAW_BUCKET, lifecycle)
-    print(f"Lifecycle rule set on '{RAW_BUCKET}': objects expire after {RETENTION_DAYS} days.")
+    raw.ensure_bucket()
+    raw.set_expiry_lifecycle(RETENTION_DAYS)
+    print(f"Bucket '{raw.bucket}' ready — objects expire after {RETENTION_DAYS} days.")
 
-    _ensure_bucket(client, ANALYSIS_BUCKET)
-    print(f"No expiry on '{ANALYSIS_BUCKET}' — OHLCV bars are kept indefinitely.")
+    analysis.ensure_bucket()
+    print(f"Bucket '{analysis.bucket}' ready — no expiry (OHLCV bars kept indefinitely).")
 
 
 if __name__ == "__main__":
