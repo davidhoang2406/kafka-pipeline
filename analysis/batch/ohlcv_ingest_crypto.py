@@ -104,7 +104,7 @@ def run() -> None:
     exchange_id: str = config["exchange"]
     symbols: list    = config["symbols"]
     lookback: int    = config.get("ohlcv_lookback_days", 1)
-    bucket           = os.getenv("MINIO_BUCKET", "market-data")
+    bucket           = os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis")
 
     exchange_client = getattr(ccxt, exchange_id)()
     minio_client    = _make_minio_client()

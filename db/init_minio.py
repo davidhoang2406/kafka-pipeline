@@ -1,5 +1,6 @@
-# Creates the market-data bucket in MinIO and applies a 30-day expiry lifecycle rule.
-# Safe to re-run — bucket creation and lifecycle config are both idempotent.
+# Creates MinIO buckets and applies lifecycle rules. Safe to re-run — idempotent.
+#   market-data     — raw streaming data (price snapshots, financials); 30-day expiry
+#   market-analysis — batch OHLCV bars (stock + crypto); no expiry (kept indefinitely)
 import os
 
 from dotenv import load_dotenv
@@ -8,7 +9,8 @@ from minio.lifecycleconfig import Expiration, Filter, LifecycleConfig, Rule
 
 load_dotenv()
 
-BUCKET          = os.getenv("MINIO_BUCKET", "market-data")
+RAW_BUCKET      = os.getenv("MINIO_BUCKET", "market-data")
+ANALYSIS_BUCKET = os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis")
 RETENTION_DAYS  = 30
 
 
@@ -24,15 +26,18 @@ def _make_client() -> Minio:
     )
 
 
+def _ensure_bucket(client: Minio, bucket: str) -> None:
+    if client.bucket_exists(bucket):
+        print(f"Bucket '{bucket}' already exists.")
+    else:
+        client.make_bucket(bucket)
+        print(f"Bucket '{bucket}' created.")
+
+
 def run() -> None:
     client = _make_client()
 
-    if client.bucket_exists(BUCKET):
-        print(f"Bucket '{BUCKET}' already exists.")
-    else:
-        client.make_bucket(BUCKET)
-        print(f"Bucket '{BUCKET}' created.")
-
+    _ensure_bucket(client, RAW_BUCKET)
     lifecycle = LifecycleConfig(
         [
             Rule(
@@ -43,8 +48,11 @@ def run() -> None:
             ),
         ]
     )
-    client.set_bucket_lifecycle(BUCKET, lifecycle)
-    print(f"Lifecycle rule set: objects expire after {RETENTION_DAYS} days.")
+    client.set_bucket_lifecycle(RAW_BUCKET, lifecycle)
+    print(f"Lifecycle rule set on '{RAW_BUCKET}': objects expire after {RETENTION_DAYS} days.")
+
+    _ensure_bucket(client, ANALYSIS_BUCKET)
+    print(f"No expiry on '{ANALYSIS_BUCKET}' — OHLCV bars are kept indefinitely.")
 
 
 if __name__ == "__main__":
