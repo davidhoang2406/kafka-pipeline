@@ -95,10 +95,10 @@ storage-flush: ## Selectively delete objects from MinIO buckets (irreversible)
 		echo "Nothing selected — aborted."; \
 	else \
 		if [ "$$md" = "y" ]; then \
-			PYTHONPATH=. $(PYTHON) db/flush_minio.py; \
+			PYTHONPATH=. $(PYTHON) db/flush_minio.py market-data; \
 		fi; \
 		if [ "$$ma" = "y" ]; then \
-			MINIO_BUCKET=market-analysis PYTHONPATH=. $(PYTHON) db/flush_minio.py; \
+			PYTHONPATH=. $(PYTHON) db/flush_minio.py market-analysis; \
 		fi; \
 		echo "Flush complete."; \
 	fi
