@@ -1,7 +1,6 @@
 # Derives daily OHLCV bars from price snapshots stored in MinIO (market-data).
-# Runs once at end of day. Downloads all price.snapshot Avro files for the target
-# date to a local temp dir, then reads them with Spark (format="avro") and
-# aggregates into one bar per symbol:
+# Runs once at end of day. Reads price.snapshot Avro files for the target date
+# directly from MinIO via Spark's S3A connector, aggregates into one bar per symbol:
 #   open   = price of the first tick (by time)
 #   high   = maximum price across all ticks
 #   low    = minimum price across all ticks
@@ -11,7 +10,6 @@
 #   ohlcv.bar/asset_class={stock|crypto}/year=/month=/day=/part-{ts}.parquet
 import logging
 import os
-import tempfile
 import time
 from collections import defaultdict
 from datetime import date, timedelta
@@ -32,13 +30,24 @@ LOOKBACK_DAYS = 0
 _COL_ORDER = ["time", "symbol", "exchange", "open", "high", "low", "close", "volume"]
 
 
-def run() -> None:
-    spark = (SparkSession.builder
-             .appName("ohlcv_daily_ingest")
-             .master("local[*]")
-             .getOrCreate())
-    spark.sparkContext.setLogLevel("WARN")
+def _build_spark() -> SparkSession:
+    return (SparkSession.builder
+            .appName("ohlcv_daily_ingest")
+            .master("local[*]")
+            # S3A connector jars — downloaded once by Spark's package resolver
+            .config("spark.jars.packages",
+                    "org.apache.hadoop:hadoop-aws:3.3.4,"
+                    "com.amazonaws:aws-java-sdk-bundle:1.12.262")
+            # Point S3A at the local MinIO instance
+            .config("spark.hadoop.fs.s3a.endpoint",          os.getenv("MINIO_ENDPOINT", "http://localhost:9000"))
+            .config("spark.hadoop.fs.s3a.access.key",        os.getenv("MINIO_ACCESS_KEY", "minioadmin"))
+            .config("spark.hadoop.fs.s3a.secret.key",        os.getenv("MINIO_SECRET_KEY", "minioadmin"))
+            .config("spark.hadoop.fs.s3a.path.style.access", "true")  # required for MinIO
+            .config("spark.hadoop.fs.s3a.impl",              "org.apache.hadoop.fs.s3a.S3AFileSystem")
+            .getOrCreate())
 
+
+def run() -> None:
     raw_store      = MinioStore(os.getenv("MINIO_BUCKET", "market-data"))
     analysis_store = MinioStore(os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis"))
 
@@ -50,25 +59,23 @@ def run() -> None:
     log.info("OHLCV daily ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Download all Avro files for the target date partition to a local temp dir
-        file_count = 0
-        for obj in raw_store.list_objects(prefix="price.snapshot/"):
-            if date_fragment not in obj.object_name:
-                continue
-            local_path = os.path.join(tmpdir, f"part-{file_count:05d}.avro")
-            raw_store.download_file(obj.object_name, local_path)
-            file_count += 1
+    # Lightweight existence check before spinning up Spark
+    has_data = any(date_fragment in obj.object_name
+                   for obj in raw_store.list_objects(prefix="price.snapshot/"))
+    if not has_data:
+        log.warning("No price snapshots found for %s — nothing to ingest", date_str)
+        return
 
-        if file_count == 0:
-            log.warning("No price snapshots found for %s — nothing to ingest", date_str)
-            spark.stop()
-            return
+    spark = _build_spark()
+    spark.sparkContext.setLogLevel("WARN")
 
-        log.info("Downloaded %d Avro file(s) — reading with Spark", file_count)
-
-        # Spark reads all Avro files in the temp dir in parallel
-        df = spark.read.format("avro").load(tmpdir)
+    class_bars: dict[str, list[dict]] = defaultdict(list)
+    try:
+        # Read directly from MinIO via S3A — no temp dir, no download step.
+        # Glob covers asset_class=* and symbol=* levels that sit above year/month/day.
+        path = (f"s3a://{raw_store.bucket}"
+                f"/price.snapshot/*/*/year={year}/month={month}/day={day}/")
+        df = spark.read.format("avro").option("recursiveFileLookup", "true").load(path)
 
         # open/close via struct sort (ISO 8601 strings sort lexicographically = chronologically).
         # min(struct("time","price")) picks the earliest tick; max picks the latest.
@@ -91,9 +98,11 @@ def run() -> None:
         )
 
         # Collect once; split by asset class in Python before writing to MinIO
-        class_bars: dict[str, list[dict]] = defaultdict(list)
         for row in df_ohlcv.collect():
             class_bars[row["asset_class"]].append({c: row[c] for c in _COL_ORDER})
+
+    finally:
+        spark.stop()
 
     ts_ms = int(time.time() * 1000)
     for asset, bars in class_bars.items():
@@ -106,5 +115,3 @@ def run() -> None:
 
     log.info("Done | stock=%d  crypto=%d bars written for %s",
              len(class_bars.get("stock", [])), len(class_bars.get("crypto", [])), date_str)
-
-    spark.stop()
