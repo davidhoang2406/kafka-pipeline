@@ -1,5 +1,5 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
-        run-price-producer run-ohlcv-daily-ingest \
+        run-stock-price-producer run-ohlcv-daily-ingest \
         run-crypto-price-producer \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
@@ -102,8 +102,8 @@ run-smoke-producer:   ## [Phase 2] Send one hardcoded VCB message to Kafka
 run-smoke-consumer:   ## [Phase 2] Print messages arriving on stock.price.realtime
 	$(PYTHON) main.py smoke-consumer
 
-run-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
-	$(PYTHON) main.py price-producer
+run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
+	$(PYTHON) main.py stock-price-producer
 
 run-ohlcv-daily-ingest:     ## Derive daily OHLCV bars from price snapshots in MinIO
 	$(PYTHON) main.py ohlcv-daily-ingest

@@ -7,7 +7,7 @@ def main():
 
     sub.add_parser("smoke-producer",        help="[Phase 2] Send one hardcoded message to Kafka")
     sub.add_parser("smoke-consumer",        help="[Phase 2] Print every message on stock.price.realtime")
-    sub.add_parser("price-producer",        help="Poll vnstock price board → Kafka (every 5 min)")
+    sub.add_parser("stock-price-producer",  help="Poll vnstock price board → Kafka (every 30 s)")
     sub.add_parser("ohlcv-daily-ingest",    help="Derive daily OHLCV bars from price snapshots in MinIO")
     sub.add_parser("crypto-price-producer", help="Poll crypto exchange prices → Kafka (every 60 s)")
     sub.add_parser("storage-consumer",      help="Consume all topics and write to MinIO as Avro")
@@ -54,8 +54,8 @@ def main():
                     f"{json.dumps(msg.value, indent=2)}\n"
                 )
 
-    elif args.command == "price-producer":
-        from producers.price_producer import run
+    elif args.command == "stock-price-producer":
+        from producers.stock_price_producer import run
         run()
     elif args.command == "ohlcv-daily-ingest":
         from analysis.batch.ohlcv_daily_ingest import run
