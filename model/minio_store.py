@@ -21,7 +21,7 @@ import fastavro
 import pyarrow as pa
 import pyarrow.parquet as pq
 from minio import Minio
-from minio.lifecycleconfig import Expiration, Filter, LifecycleConfig, Rule
+from minio.lifecycleconfig import Expiration, LifecycleConfig, Rule
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class MinioStore:
         config = LifecycleConfig([
             Rule(
                 "Enabled",
-                rule_filter=Filter(prefix=""),
+                rule_filter=None,
                 rule_id=f"expire-after-{days}-days",
                 expiration=Expiration(days=days),
             )
