@@ -20,7 +20,7 @@ TOPIC = "stock.price.realtime"
 CONFIG = Path(__file__).parent.parent / "config" / "stocks.json"
 
 
-def _publish_snapshot(producer: BaseProducer, symbols: list) -> int:
+def _publish_snapshot(producer: BaseProducer, symbols: list, default_exchange: str) -> int:
     df = Trading(source="KBS").price_board(symbols)
     if df is None or df.empty:
         log.warning("price_board returned empty result")
@@ -31,7 +31,7 @@ def _publish_snapshot(producer: BaseProducer, symbols: list) -> int:
         r = row.to_dict()
 
         symbol   = str(r.get("symbol", "UNKNOWN")).upper()
-        exchange = str(r.get("exchange") or "HOSE").upper()
+        exchange = str(r.get("exchange") or default_exchange).upper()
         payload = {
             "price":      coerce_float(r.get("close_price")),
             "change":     coerce_float(r.get("price_change")),
@@ -53,14 +53,15 @@ def _publish_snapshot(producer: BaseProducer, symbols: list) -> int:
 
 def run():
     config = load_json_config(CONFIG)
-    symbols: list = config["symbols"]
-    interval: int = config.get("poll_interval_seconds", 300)
+    exchange: str  = config["exchange"]
+    symbols: list  = config["symbols"]
+    interval: int  = config.get("poll_interval_seconds", 300)
 
-    log.info("Starting price producer | symbols=%s | interval=%ds", symbols, interval)
+    log.info("Starting price producer | exchange=%s | symbols=%s | interval=%ds", exchange, symbols, interval)
     with BaseProducer() as producer:
         while True:
             try:
-                n = _publish_snapshot(producer, symbols)
+                n = _publish_snapshot(producer, symbols, exchange)
                 log.info("Published %d price snapshots → %s", n, TOPIC)
             except Exception:
                 log.exception("Fetch failed — retrying in %ds", interval)
