@@ -129,7 +129,7 @@ spark-build: ## Build (or rebuild) the Spark Docker image
 
 run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
 	docker exec spark-master bash -c '\
-		PYTHONPATH=/opt/project spark-submit \
+		PYTHONPATH=/opt/project /opt/spark/bin/spark-submit \
 			--master spark://spark-master:7077 \
 			--conf "spark.executorEnv.PYTHONPATH=/opt/project" \
 			--conf "spark.executorEnv.MINIO_ENDPOINT=$$MINIO_ENDPOINT" \
