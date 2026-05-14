@@ -87,10 +87,21 @@ topics-create: ## Create all Kafka topics (safe to re-run — uses --if-not-exis
 minio-init: ## Create the market-data and market-analysis bucket in MinIO (safe to re-run)
 	PYTHONPATH=. $(PYTHON) db/init_minio.py
 
-storage-flush: ## Delete all objects from MinIO (irreversible)
-	@echo "WARNING: this permanently deletes all data in the market-data bucket."
-	@read -p "Type 'yes' to confirm: " ans && [ "$$ans" = "yes" ] || (echo "Aborted."; exit 1)
-	PYTHONPATH=. $(PYTHON) db/flush_minio.py
+storage-flush: ## Selectively delete objects from MinIO buckets (irreversible)
+	@echo "WARNING: this permanently deletes all data from selected buckets."
+	@read -p "  Delete market-data (raw price snapshots)? [y/n] " md; \
+	read -p "  Delete market-analysis (OHLCV bars)? [y/n] " ma; \
+	if [ "$$md" != "y" ] && [ "$$ma" != "y" ]; then \
+		echo "Nothing selected — aborted."; \
+	else \
+		if [ "$$md" = "y" ]; then \
+			PYTHONPATH=. $(PYTHON) db/flush_minio.py; \
+		fi; \
+		if [ "$$ma" = "y" ]; then \
+			MINIO_BUCKET=market-analysis PYTHONPATH=. $(PYTHON) db/flush_minio.py; \
+		fi; \
+		echo "Flush complete."; \
+	fi
 
 run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
 	docker compose up -d
