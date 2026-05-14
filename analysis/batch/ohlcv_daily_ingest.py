@@ -19,7 +19,7 @@ from pyspark.sql import functions as F
 
 from model.minio_store import MinioStore
 from model.schemas import OHLCV_BAR_SCHEMA
-from model.spark import build_spark
+from model.spark import SparkFactory
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -49,11 +49,8 @@ def run() -> None:
         log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
-    spark = build_spark("ohlcv_daily_ingest")
-    spark.sparkContext.setLogLevel("WARN")
-
     class_bars: dict[str, list[dict]] = defaultdict(list)
-    try:
+    with SparkFactory("ohlcv_daily_ingest") as spark:
         # Read directly from MinIO via S3A — no temp dir, no download step.
         # Glob covers asset_class=* and symbol=* levels that sit above year/month/day.
         path = (f"s3a://{raw_store.bucket}"
@@ -83,9 +80,6 @@ def run() -> None:
         # Collect once; split by asset class in Python before writing to MinIO
         for row in df_ohlcv.collect():
             class_bars[row["asset_class"]].append({c: row[c] for c in _COL_ORDER})
-
-    finally:
-        spark.stop()
 
     ts_ms = int(time.time() * 1000)
     for asset, bars in class_bars.items():
