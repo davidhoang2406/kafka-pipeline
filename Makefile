@@ -7,8 +7,9 @@
         spark-build spark-history-server \
         test test-unit test-integration
 
-PYTHON := .venv/bin/python
-PIP    := .venv/bin/pip
+PYTHON  := .venv/bin/python
+PIP     := .venv/bin/pip
+COMPOSE := docker compose -f docker/docker-compose.yml
 
 # ── Installation ──────────────────────────────────────────────────────────────
 install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark)
@@ -28,7 +29,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
-			docker compose build flink-jobmanager flink-taskmanager; \
+			$(COMPOSE) build flink-jobmanager flink-taskmanager; \
 			echo "Downloading Flink Kafka connector JAR (local mode)..."; \
 			mkdir -p jars; \
 			curl -fL -o jars/flink-sql-connector-kafka-4.0.1-2.0.jar \
@@ -37,10 +38,10 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		fi; \
 		if [ "$$sp" = "y" ]; then \
 			echo "Building Spark Docker image (downloads S3A JARs — takes a moment)..."; \
-			docker compose build spark-master spark-worker; \
+			$(COMPOSE) build spark-master spark-worker; \
 		fi; \
 		echo "Starting:$$services"; \
-		docker compose up -d $$services; \
+		$(COMPOSE) up -d $$services; \
 		if [ "$$m" = "y" ]; then \
 			echo "Waiting for MinIO..."; \
 			until curl -sf http://localhost:9000/minio/health/live 2>/dev/null; do \
@@ -70,17 +71,17 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	else \
 		if [ "$$k" = "y" ]; then \
 			echo "Removing Kafka + Kafka UI..."; \
-			docker compose rm -sf kafka kafka-ui; \
+			$(COMPOSE) rm -sf kafka kafka-ui; \
 			docker volume ls -q | grep kafka_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		if [ "$$m" = "y" ]; then \
 			echo "Removing MinIO..."; \
-			docker compose rm -sf minio; \
+			$(COMPOSE) rm -sf minio; \
 			docker volume ls -q | grep minio_data | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Removing Flink..."; \
-			docker compose rm -sf flink-jobmanager flink-taskmanager; \
+			$(COMPOSE) rm -sf flink-jobmanager flink-taskmanager; \
 		fi; \
 		echo "Uninstall complete."; \
 	fi
@@ -111,7 +112,7 @@ storage-flush: ## Selectively delete objects from MinIO buckets (irreversible)
 	fi
 
 run: ## Start all infrastructure containers (Kafka, MinIO, Flink, Kafka UI)
-	docker compose up -d
+	$(COMPOSE) up -d
 
 # ── Running ───────────────────────────────────────────────────────────────────
 run-smoke-producer:   ## [Phase 2] Send one hardcoded VCB message to Kafka
@@ -124,7 +125,7 @@ run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
 	$(PYTHON) main.py stock-price-producer
 
 spark-build: ## Build (or rebuild) the Spark Docker image
-	docker compose build spark-master spark-worker spark-history-server
+	$(COMPOSE) build spark-master spark-worker spark-history-server
 
 run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
 	docker exec spark-master \

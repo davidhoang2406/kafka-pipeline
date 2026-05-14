@@ -62,8 +62,8 @@ services:
 
   flink-jobmanager:
     build:
-      context: .
-      dockerfile: flink.Dockerfile
+      context: ..
+      dockerfile: docker/flink.Dockerfile
     container_name: flink-jobmanager
     command: jobmanager
     ports:
@@ -73,15 +73,15 @@ services:
         jobmanager.rpc.address: flink-jobmanager
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # internal listener for jobs running in-container
     volumes:
-      - .:/opt/project                        # project files available to flink run-python
+      - ..:/opt/project                       # project files available to flink run-python
     depends_on:
       kafka:
         condition: service_healthy
 
   flink-taskmanager:
     build:
-      context: .
-      dockerfile: flink.Dockerfile
+      context: ..
+      dockerfile: docker/flink.Dockerfile
     container_name: flink-taskmanager
     command: taskmanager
     environment:
@@ -90,14 +90,14 @@ services:
         taskmanager.numberOfTaskSlots: 4
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     volumes:
-      - .:/opt/project
+      - ..:/opt/project
     depends_on:
       - flink-jobmanager
 
   spark-master:
     build:
-      context: .
-      dockerfile: spark.Dockerfile
+      context: ..
+      dockerfile: docker/spark.Dockerfile
     container_name: spark-master
     environment:
       SPARK_MODE: master
@@ -114,7 +114,7 @@ services:
       - "7077:7077"   # Spark submit port
       - "8082:8080"   # Spark Master Web UI → http://localhost:8082
     volumes:
-      - .:/opt/project
+      - ..:/opt/project
       - spark_logs:/tmp/spark-events   # event logs read by history server
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
@@ -125,8 +125,8 @@ services:
 
   spark-worker:
     build:
-      context: .
-      dockerfile: spark.Dockerfile
+      context: ..
+      dockerfile: docker/spark.Dockerfile
     container_name: spark-worker
     environment:
       SPARK_MODE: worker
@@ -140,15 +140,15 @@ services:
       MINIO_BUCKET: market-data
       MINIO_ANALYSIS_BUCKET: market-analysis
     volumes:
-      - .:/opt/project
+      - ..:/opt/project
     depends_on:
       spark-master:
         condition: service_healthy
 
   spark-history-server:
     build:
-      context: .
-      dockerfile: spark.Dockerfile
+      context: ..
+      dockerfile: docker/spark.Dockerfile
     container_name: spark-history-server
     command: ["/opt/bitnami/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
     environment:
