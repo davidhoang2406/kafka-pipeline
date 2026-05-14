@@ -4,10 +4,10 @@ USER root
 
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends curl default-jre-headless && \
-    rm -rf /var/lib/apt/lists/* && \
-    ln -sf /usr/lib/jvm/java-17-openjdk-$(dpkg --print-architecture) /usr/lib/jvm/java-17-openjdk
+    rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+# Debian creates /usr/lib/jvm/default-java symlink automatically
+ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt jupyterlab>=4.2
