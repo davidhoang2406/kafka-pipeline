@@ -151,6 +151,10 @@ class MinioStore:
         """Return a streaming HTTP response for the given object key."""
         return self._client.get_object(self.bucket, key)
 
+    def download_file(self, key: str, local_path: str) -> None:
+        """Download an object to a local file path."""
+        self._client.fget_object(self.bucket, key, local_path)
+
     def read_avro(self, key: str) -> list[dict]:
         """Download an Avro file by key and return all records as a list of dicts."""
         response = self.get_object(key)

@@ -1,6 +1,7 @@
 # Derives daily OHLCV bars from price snapshots stored in MinIO (market-data).
-# Runs once at end of day. Reads all price.snapshot Avro files for the target date,
-# loads them into a local Spark session, and aggregates into one bar per symbol:
+# Runs once at end of day. Downloads all price.snapshot Avro files for the target
+# date to a local temp dir, then reads them with Spark (format="avro") and
+# aggregates into one bar per symbol:
 #   open   = price of the first tick (by time)
 #   high   = maximum price across all ticks
 #   low    = minimum price across all ticks
@@ -10,6 +11,7 @@
 #   ohlcv.bar/asset_class={stock|crypto}/year=/month=/day=/part-{ts}.parquet
 import logging
 import os
+import tempfile
 import time
 from collections import defaultdict
 from datetime import date, timedelta
@@ -48,46 +50,50 @@ def run() -> None:
     log.info("OHLCV daily ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
-    # Read all ticks for the target date from MinIO
-    all_ticks: list[dict] = []
-    for obj in raw_store.list_objects(prefix="price.snapshot/"):
-        if date_fragment not in obj.object_name:
-            continue
-        all_ticks.extend(raw_store.read_avro(obj.object_name))
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Download all Avro files for the target date partition to a local temp dir
+        file_count = 0
+        for obj in raw_store.list_objects(prefix="price.snapshot/"):
+            if date_fragment not in obj.object_name:
+                continue
+            local_path = os.path.join(tmpdir, f"part-{file_count:05d}.avro")
+            raw_store.download_file(obj.object_name, local_path)
+            file_count += 1
 
-    if not all_ticks:
-        log.warning("No price snapshots found for %s — nothing to ingest", date_str)
-        spark.stop()
-        return
+        if file_count == 0:
+            log.warning("No price snapshots found for %s — nothing to ingest", date_str)
+            spark.stop()
+            return
 
-    log.info("Loaded %d ticks — aggregating with Spark", len(all_ticks))
+        log.info("Downloaded %d Avro file(s) — reading with Spark", file_count)
 
-    df = spark.createDataFrame(all_ticks)
+        # Spark reads all Avro files in the temp dir in parallel
+        df = spark.read.format("avro").load(tmpdir)
 
-    # open/close derived via struct sort (lexicographic on time string → chronological order).
-    # min(struct("time","price")) picks the earliest tick; max picks the latest.
-    df_ohlcv = (
-        df.groupBy("symbol", "exchange")
-        .agg(
-            F.min(F.struct("time", "price")).getField("price").alias("open"),
-            F.max("price").alias("high"),
-            F.min("price").alias("low"),
-            F.max(F.struct("time", "price")).getField("price").alias("close"),
-            F.sum("volume").alias("volume"),
-            F.min("time").alias("_min_time"),
+        # open/close via struct sort (ISO 8601 strings sort lexicographically = chronologically).
+        # min(struct("time","price")) picks the earliest tick; max picks the latest.
+        df_ohlcv = (
+            df.groupBy("symbol", "exchange")
+            .agg(
+                F.min(F.struct("time", "price")).getField("price").alias("open"),
+                F.max("price").alias("high"),
+                F.min("price").alias("low"),
+                F.max(F.struct("time", "price")).getField("price").alias("close"),
+                F.sum("volume").alias("volume"),
+                F.min("time").alias("_min_time"),
+            )
+            .withColumn("time", F.concat(F.col("_min_time").substr(1, 10), F.lit("T00:00:00+00:00")))
+            .withColumn(
+                "asset_class",
+                F.when(F.col("symbol").contains("/"), F.lit("crypto")).otherwise(F.lit("stock")),
+            )
+            .drop("_min_time")
         )
-        .withColumn("time", F.concat(F.col("_min_time").substr(1, 10), F.lit("T00:00:00+00:00")))
-        .withColumn(
-            "asset_class",
-            F.when(F.col("symbol").contains("/"), F.lit("crypto")).otherwise(F.lit("stock")),
-        )
-        .drop("_min_time")
-    )
 
-    # Collect once; partition into asset classes in Python before writing
-    class_bars: dict[str, list[dict]] = defaultdict(list)
-    for row in df_ohlcv.collect():
-        class_bars[row["asset_class"]].append({c: row[c] for c in _COL_ORDER})
+        # Collect once; split by asset class in Python before writing to MinIO
+        class_bars: dict[str, list[dict]] = defaultdict(list)
+        for row in df_ohlcv.collect():
+            class_bars[row["asset_class"]].append({c: row[c] for c in _COL_ORDER})
 
     ts_ms = int(time.time() * 1000)
     for asset, bars in class_bars.items():
