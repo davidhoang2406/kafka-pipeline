@@ -99,8 +99,8 @@ services:
       context: ..
       dockerfile: docker/spark.Dockerfile
     container_name: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
     environment:
-      SPARK_MODE: master
       SPARK_MASTER_HOST: spark-master
       PYTHONPATH: /opt/project
       # Override .env so jobs reach MinIO via the Docker network
@@ -128,11 +128,10 @@ services:
       context: ..
       dockerfile: docker/spark.Dockerfile
     container_name: spark-worker
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
     environment:
-      SPARK_MODE: worker
-      SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 2G
-      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: "2"
       PYTHONPATH: /opt/project
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
@@ -150,7 +149,7 @@ services:
       context: ..
       dockerfile: docker/spark.Dockerfile
     container_name: spark-history-server
-    command: ["/opt/bitnami/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.history.HistoryServer"]
     environment:
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=/tmp/spark-events
