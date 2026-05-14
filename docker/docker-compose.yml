@@ -48,8 +48,8 @@ services:
       - "9000:9000"   # S3 API
       - "9001:9001"   # Web console → http://localhost:9001
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
@@ -105,10 +105,10 @@ services:
       PYTHONPATH: /opt/project
       # Override .env so jobs reach MinIO via the Docker network
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: market-data
-      MINIO_ANALYSIS_BUCKET: market-analysis
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
       SPARK_MASTER_URL: spark://spark-master:7077
     ports:
       - "7077:7077"   # Spark submit port
@@ -134,10 +134,10 @@ services:
       SPARK_WORKER_CORES: "2"
       PYTHONPATH: /opt/project
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: market-data
-      MINIO_ANALYSIS_BUCKET: market-analysis
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
     volumes:
       - ..:/opt/project
     depends_on:
