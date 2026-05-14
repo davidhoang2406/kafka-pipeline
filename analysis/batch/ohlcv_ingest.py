@@ -1,13 +1,13 @@
-# Derives daily OHLCV bars from price snapshots already stored in MinIO (market-data).
-# Reads price.snapshot Avro files for the target date, groups ticks by symbol,
-# then aggregates:
-#   open   = price of the first tick (earliest time)
+# Derives daily OHLCV bars from price snapshots stored in MinIO (market-data).
+# Reads all price.snapshot Avro files for the target date, groups ticks by symbol,
+# and aggregates into one bar per symbol:
+#   open   = price of the first tick (by time)
 #   high   = maximum price across all ticks
 #   low    = minimum price across all ticks
-#   close  = price of the last tick (latest time)
+#   close  = price of the last tick (by time)
 #   volume = sum of all tick volumes
-# Output is written to market-analysis as Snappy-compressed Parquet,
-# using the same partition layout as the external OHLCV ingest jobs.
+# Output is written to market-analysis as Snappy-compressed Parquet.
+# Covers all symbols (stock and crypto) in a single pass — no external API calls.
 import logging
 import os
 from collections import defaultdict
@@ -51,15 +51,13 @@ def run() -> None:
     date_str      = target.strftime("%Y-%m-%d")
     date_fragment = f"/year={year}/month={month}/day={day}/"
 
-    log.info("Deriving OHLCV from price snapshots | date=%s | src=%s → dst=%s",
+    log.info("OHLCV ingest | date=%s | src=%s → dst=%s",
              date_str, raw_store.bucket, analysis_store.bucket)
 
-    # Collect all ticks for the target date, grouped by symbol
     symbol_ticks: dict[str, list[dict]] = defaultdict(list)
     for obj in raw_store.list_objects(prefix="price.snapshot/"):
         if date_fragment not in obj.object_name:
             continue
-        # Extract symbol from path: price.snapshot/symbol={sym}/year=.../
         part = next((p for p in obj.object_name.split("/") if p.startswith("symbol=")), None)
         if part is None:
             continue
@@ -67,7 +65,7 @@ def run() -> None:
         symbol_ticks[symbol].extend(raw_store.read_avro(obj.object_name))
 
     if not symbol_ticks:
-        log.warning("No price snapshots found for %s — nothing to derive", date_str)
+        log.warning("No price snapshots found for %s — nothing to ingest", date_str)
         return
 
     total = 0
@@ -75,7 +73,7 @@ def run() -> None:
         ticks.sort(key=lambda r: r["time"])
         bar = _aggregate(ticks)
         analysis_store.write_partitioned_parquet("ohlcv.bar", symbol, [bar], OHLCV_BAR_SCHEMA)
-        log.info("%s: derived OHLCV from %d ticks → MinIO", symbol, len(ticks))
+        log.info("%s: %d ticks → 1 OHLCV bar", symbol, len(ticks))
         total += 1
 
-    log.info("Done | derived %d OHLCV bars for %s", total, date_str)
+    log.info("Done | %d OHLCV bars written for %s", total, date_str)
