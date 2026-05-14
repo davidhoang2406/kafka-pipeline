@@ -94,6 +94,56 @@ services:
     depends_on:
       - flink-jobmanager
 
+  spark-master:
+    build:
+      context: .
+      dockerfile: spark.Dockerfile
+    container_name: spark-master
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      PYTHONPATH: /opt/project
+      # Override .env so jobs reach MinIO via the Docker network
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: market-data
+      MINIO_ANALYSIS_BUCKET: market-analysis
+      SPARK_MASTER_URL: spark://spark-master:7077
+    ports:
+      - "7077:7077"   # Spark submit port
+      - "8082:8080"   # Spark Web UI → http://localhost:8082
+    volumes:
+      - .:/opt/project
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  spark-worker:
+    build:
+      context: .
+      dockerfile: spark.Dockerfile
+    container_name: spark-worker
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 2G
+      SPARK_WORKER_CORES: 2
+      PYTHONPATH: /opt/project
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: market-data
+      MINIO_ANALYSIS_BUCKET: market-analysis
+    volumes:
+      - .:/opt/project
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
 volumes:
   kafka_data:
   minio_data:

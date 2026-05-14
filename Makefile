@@ -4,25 +4,28 @@
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
         run-technical run-digest run-screener \
+        spark-build \
         test test-unit test-integration
 
 PYTHON := .venv/bin/python
 PIP    := .venv/bin/pip
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
 	read -p "  MinIO (object storage)? [y/n] " m; \
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ]; then \
+	read -p "  Spark (Master + Worker)? [y/n] " sp; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
 		if [ "$$k" = "y" ]; then services="$$services kafka kafka-ui"; fi; \
 		if [ "$$m" = "y" ]; then services="$$services minio"; fi; \
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
+		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
 			docker compose build flink-jobmanager flink-taskmanager; \
@@ -31,6 +34,10 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink)
 			curl -fL -o jars/flink-sql-connector-kafka-4.0.1-2.0.jar \
 				"https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/4.0.1-2.0/flink-sql-connector-kafka-4.0.1-2.0.jar"; \
 			echo "JAR ready in jars/"; \
+		fi; \
+		if [ "$$sp" = "y" ]; then \
+			echo "Building Spark Docker image (downloads S3A JARs — takes a moment)..."; \
+			docker compose build spark-master spark-worker; \
 		fi; \
 		echo "Starting:$$services"; \
 		docker compose up -d $$services; \
@@ -116,8 +123,19 @@ run-smoke-consumer:   ## [Phase 2] Print messages arriving on stock.price.realti
 run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
 	$(PYTHON) main.py stock-price-producer
 
-run-ohlcv-daily-ingest:     ## Derive daily OHLCV bars from price snapshots in MinIO
-	$(PYTHON) main.py ohlcv-daily-ingest
+spark-build: ## Build (or rebuild) the Spark Docker image
+	docker compose build spark-master spark-worker
+
+run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
+	docker exec spark-master \
+		env PYTHONPATH=/opt/project \
+		spark-submit \
+			--master spark://spark-master:7077 \
+			--conf "spark.executorEnv.PYTHONPATH=/opt/project" \
+			--conf "spark.executorEnv.MINIO_ENDPOINT=http://minio:9000" \
+			--conf "spark.executorEnv.MINIO_ACCESS_KEY=minioadmin" \
+			--conf "spark.executorEnv.MINIO_SECRET_KEY=minioadmin" \
+		/opt/project/main.py ohlcv-daily-ingest
 
 run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s)
 	$(PYTHON) main.py crypto-price-producer

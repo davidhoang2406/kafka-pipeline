@@ -15,9 +15,16 @@ Usage
     # ...
     factory.stop()
 
+Master resolution (SPARK_MASTER_URL env var):
+  - Not set / local dev  → local[*]  (in-process, no cluster needed)
+  - Docker               → spark://spark-master:7077
+
 S3A is pre-configured to talk to the MinIO instance defined by env vars
-(MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY), so any batch job
-can immediately read/write s3a://<bucket>/... without extra setup.
+(MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY). In Docker, these
+are set to point at the minio container (http://minio:9000) via
+docker-compose, so jobs read/write s3a://<bucket>/... without changes.
+
+S3A JARs are pre-baked into the spark.Dockerfile — no runtime download.
 """
 import os
 
@@ -31,9 +38,8 @@ class SparkFactory:
     on exit, even if the job raises an exception.
     """
 
-    def __init__(self, app_name: str, master: str = "local[*]") -> None:
+    def __init__(self, app_name: str) -> None:
         self._app_name = app_name
-        self._master   = master
         self._session: SparkSession | None = None
 
     @property
@@ -54,14 +60,13 @@ class SparkFactory:
         self.stop()
 
     def _build(self) -> SparkSession:
+        # SPARK_MASTER_URL is set in docker-compose for the cluster;
+        # falls back to local[*] for local dev without a cluster.
+        master = os.getenv("SPARK_MASTER_URL", "local[*]")
         spark = (SparkSession.builder
                  .appName(self._app_name)
-                 .master(self._master)
-                 # S3A connector — downloaded once by Spark's package resolver, then cached
-                 .config("spark.jars.packages",
-                         "org.apache.hadoop:hadoop-aws:3.3.4,"
-                         "com.amazonaws:aws-java-sdk-bundle:1.12.262")
-                 # MinIO S3A config
+                 .master(master)
+                 # S3A JARs are pre-baked in spark.Dockerfile — no download needed
                  .config("spark.hadoop.fs.s3a.endpoint",          os.getenv("MINIO_ENDPOINT", "http://localhost:9000"))
                  .config("spark.hadoop.fs.s3a.access.key",        os.getenv("MINIO_ACCESS_KEY", "minioadmin"))
                  .config("spark.hadoop.fs.s3a.secret.key",        os.getenv("MINIO_SECRET_KEY", "minioadmin"))
