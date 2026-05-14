@@ -18,8 +18,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-TOPICS         = ["stock.price.realtime", "stock.ohlcv.daily", "stock.financials",
-                  "crypto.price.realtime", "crypto.ohlcv.daily"]
+TOPICS         = ["stock.price.realtime", "stock.financials", "crypto.price.realtime"]
 GROUP_ID       = "storage"
 BATCH_SIZE     = 500   # flush after this many rows total
 FLUSH_INTERVAL = 30    # also flush after this many seconds even if batch isn't full
