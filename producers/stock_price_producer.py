@@ -1,4 +1,4 @@
-# Polls the vnstock price board (KBS source) for all symbols in config/symbols.json
+# Polls the vnstock price board (KBS source) for all symbols in config/stocks.json
 # and publishes real-time price snapshots to the `stock.price.realtime` Kafka topic.
 # Runs as a continuous loop at a configurable interval (default: 30 s).
 import logging
@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 TOPIC = "stock.price.realtime"
-CONFIG = Path(__file__).parent.parent / "config" / "symbols.json"
+CONFIG = Path(__file__).parent.parent / "config" / "stocks.json"
 
 
 def _publish_snapshot(producer: BaseProducer, symbols: list) -> int:
@@ -53,7 +53,7 @@ def _publish_snapshot(producer: BaseProducer, symbols: list) -> int:
 
 def run():
     config = load_json_config(CONFIG)
-    symbols: list = config["watchlist"]
+    symbols: list = config["symbols"]
     interval: int = config.get("poll_interval_seconds", 300)
 
     log.info("Starting price producer | symbols=%s | interval=%ds", symbols, interval)

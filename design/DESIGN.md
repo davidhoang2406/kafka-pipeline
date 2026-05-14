@@ -82,7 +82,7 @@ The `source` field distinguishes the data origin (`"vnstock/KBS"` vs `"ccxt/bina
 ### `producers/price_producer.py`
 - Polls `Trading(source='KBS').price_board(symbols)` every N seconds (default 300 s)
 - Publishes to `stock.price.realtime` with `source="vnstock/KBS"`
-- Symbol list loaded from `config/symbols.json`
+- Symbol list loaded from `config/stocks.json`
 
 ### `producers/ohlcv_producer.py` → relocating to `batch/ohlcv_ingest_stock.py`
 - Runs once daily (triggered by a scheduler or cron)
@@ -256,7 +256,7 @@ python db/init_minio.py
 Kafka/
 ├── docker-compose.yml
 ├── config/
-│   ├── symbols.json            # Stock watchlist and poll interval
+│   ├── stocks.json             # Stock symbols and poll interval
 │   ├── crypto.json             # Crypto exchange, pairs, and poll interval
 │   ├── alerts.json             # Price alert rules
 │   └── screener.json           # Screener filter thresholds
