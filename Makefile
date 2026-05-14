@@ -5,6 +5,7 @@
         run-flink-alert \
         run-technical run-digest run-screener \
         spark-build spark-history-server \
+        jupyter \
         test test-unit test-integration
 
 PYTHON  := .venv/bin/python
@@ -157,6 +158,9 @@ run-digest:           ## Daily market digest (gainers/losers/volume)
 
 run-screener:         ## Fundamental screener (P/E, D/E, EPS)
 	$(PYTHON) main.py screener
+
+jupyter:              ## Start JupyterLab (connects to running Docker services via localhost)
+	PYTHONPATH=. $(PYTHON) -m jupyter lab --notebook-dir=notebooks
 
 test:                 ## Run all tests (Docker must be running for integration)
 	$(PYTHON) -m pytest
