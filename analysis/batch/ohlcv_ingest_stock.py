@@ -6,11 +6,11 @@ import os
 from datetime import date, timedelta
 from pathlib import Path
 
-import pyarrow as pa
 from dotenv import load_dotenv
 from vnstock import Quote
 
 from model.minio_store import MinioStore
+from model.schemas import OHLCV_BAR_SCHEMA
 from producers.utils import coerce_float, coerce_int, load_json_config, to_ts
 
 load_dotenv()
@@ -19,17 +19,6 @@ log = logging.getLogger(__name__)
 
 CONFIG        = Path(__file__).parent.parent.parent / "config" / "symbols.json"
 LOOKBACK_DAYS = 1
-
-_SCHEMA = pa.schema([
-    pa.field("time",     pa.string()),
-    pa.field("symbol",   pa.string()),
-    pa.field("exchange", pa.string()),
-    pa.field("open",     pa.float64()),
-    pa.field("high",     pa.float64()),
-    pa.field("low",      pa.float64()),
-    pa.field("close",    pa.float64()),
-    pa.field("volume",   pa.int64()),
-])
 
 
 def _ingest_ohlcv(store: MinioStore, symbol: str, exchange: str, start: str, end: str) -> int:
@@ -55,7 +44,7 @@ def _ingest_ohlcv(store: MinioStore, symbol: str, exchange: str, start: str, end
             "volume":   coerce_int(r.get("volume")),
         })
 
-    store.write_partitioned_parquet("ohlcv.bar", symbol, rows, _SCHEMA)
+    store.write_partitioned_parquet("ohlcv.bar", symbol, rows, OHLCV_BAR_SCHEMA)
     return len(rows)
 
 

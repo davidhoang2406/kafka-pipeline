@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ccxt
-import pyarrow as pa
 from dotenv import load_dotenv
 
 from model.minio_store import MinioStore
+from model.schemas import OHLCV_BAR_SCHEMA
 from producers.utils import coerce_float, coerce_int, load_json_config
 
 load_dotenv()
@@ -18,17 +18,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 CONFIG = Path(__file__).parent.parent.parent / "config" / "crypto.json"
-
-_SCHEMA = pa.schema([
-    pa.field("time",     pa.string()),
-    pa.field("symbol",   pa.string()),
-    pa.field("exchange", pa.string()),
-    pa.field("open",     pa.float64()),
-    pa.field("high",     pa.float64()),
-    pa.field("low",      pa.float64()),
-    pa.field("close",    pa.float64()),
-    pa.field("volume",   pa.int64()),
-])
 
 
 def _ingest_ohlcv(
@@ -58,7 +47,7 @@ def _ingest_ohlcv(
             "volume":   coerce_int(volume),
         })
 
-    store.write_partitioned_parquet("ohlcv.bar", symbol, rows, _SCHEMA)
+    store.write_partitioned_parquet("ohlcv.bar", symbol, rows, OHLCV_BAR_SCHEMA)
     return len(rows)
 
 
