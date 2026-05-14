@@ -7,7 +7,7 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt jupyterlab>=4.2
 
 # Pre-bake S3A and Avro JARs into PySpark's local jars directory so that
 # Spark local[*] mode can read from MinIO via S3A without downloading at runtime
@@ -25,4 +25,4 @@ WORKDIR /opt/project
 
 EXPOSE 8888
 
-CMD ["sh", "-c", "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --ServerApp.token='' --ServerApp.password='' --notebook-dir=/opt/project/notebooks"]
+CMD ["sh", "-c", "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --ServerApp.token='' --ServerApp.password='' --notebook-dir=/opt/project/notebooks"]
