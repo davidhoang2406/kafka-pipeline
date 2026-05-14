@@ -18,6 +18,8 @@ import os
 import time
 
 import fastavro
+import pyarrow as pa
+import pyarrow.parquet as pq
 from minio import Minio
 from minio.lifecycleconfig import Expiration, Filter, LifecycleConfig, Rule
 
@@ -102,6 +104,42 @@ class MinioStore:
         key = (f"{event_type}/symbol={safe_symbol}"
                f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
         self.write_avro(key, schema, rows)
+
+    def write_parquet(self, key: str, schema: pa.Schema, rows: list[dict]) -> None:
+        """Serialize rows as Snappy-compressed Parquet and upload to the exact key."""
+        if not rows:
+            return
+        table = pa.Table.from_pylist(rows, schema=schema)
+        buf   = io.BytesIO()
+        pq.write_table(table, buf, compression="snappy")
+        data  = buf.getvalue()
+        self._client.put_object(
+            self.bucket, key, io.BytesIO(data), len(data),
+            content_type="application/octet-stream",
+        )
+        log.info("wrote %d rows → s3://%s/%s", len(rows), self.bucket, key)
+
+    def write_partitioned_parquet(
+        self,
+        event_type: str,
+        symbol: str,
+        rows: list[dict],
+        schema: pa.Schema,
+    ) -> None:
+        """Write rows as Parquet using the standard partition layout, deriving the date from rows[0]['time'].
+
+        Layout: {event_type}/symbol={symbol}/year={Y}/month={m}/day={d}/part-{ts_ms}.parquet
+        Slashes in symbol are replaced with dashes (e.g. BTC/USDT → BTC-USDT).
+        """
+        if not rows:
+            return
+        date_str             = rows[0]["time"][:10]
+        year, month, day     = date_str[:4], date_str[5:7], date_str[8:10]
+        safe_symbol          = symbol.replace("/", "-")
+        ts_ms                = int(time.time() * 1000)
+        key = (f"{event_type}/symbol={safe_symbol}"
+               f"/year={year}/month={month}/day={day}/part-{ts_ms}.parquet")
+        self.write_parquet(key, schema, rows)
 
     # ── Object reads / deletes ─────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 # Batch ingest for crypto OHLCV bars via CCXT (default: Binance).
-# Bars are written directly to MinIO (market-analysis bucket) as deflate-compressed Avro.
+# Bars are written directly to MinIO (market-analysis bucket) as Snappy-compressed Parquet.
 # Intended to run once per day (cron or manual trigger).
 import logging
 import os
@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ccxt
-import fastavro
+import pyarrow as pa
 from dotenv import load_dotenv
 
 from model.minio_store import MinioStore
@@ -19,19 +19,16 @@ log = logging.getLogger(__name__)
 
 CONFIG = Path(__file__).parent.parent.parent / "config" / "crypto.json"
 
-_OHLCV_SCHEMA = fastavro.parse_schema({
-    "type": "record", "name": "OhlcvBar",
-    "fields": [
-        {"name": "time",     "type": "string"},
-        {"name": "symbol",   "type": "string"},
-        {"name": "exchange", "type": "string"},
-        {"name": "open",     "type": "double"},
-        {"name": "high",     "type": "double"},
-        {"name": "low",      "type": "double"},
-        {"name": "close",    "type": "double"},
-        {"name": "volume",   "type": "long"},
-    ],
-})
+_SCHEMA = pa.schema([
+    pa.field("time",     pa.string()),
+    pa.field("symbol",   pa.string()),
+    pa.field("exchange", pa.string()),
+    pa.field("open",     pa.float64()),
+    pa.field("high",     pa.float64()),
+    pa.field("low",      pa.float64()),
+    pa.field("close",    pa.float64()),
+    pa.field("volume",   pa.int64()),
+])
 
 
 def _ingest_ohlcv(
@@ -61,7 +58,7 @@ def _ingest_ohlcv(
             "volume":   coerce_int(volume),
         })
 
-    store.write_partitioned("ohlcv.bar", symbol, rows, _OHLCV_SCHEMA)
+    store.write_partitioned_parquet("ohlcv.bar", symbol, rows, _SCHEMA)
     return len(rows)
 
 
