@@ -15,6 +15,10 @@ jars/
 # macOS
 .DS_Store
 
+# Jupyter
+notebooks/.ipynb_checkpoints/
+notebooks/**/.ipynb_checkpoints/
+
 # IDE / tool settings
 .idea/
 .claude/
