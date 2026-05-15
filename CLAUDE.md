@@ -102,4 +102,15 @@ See `design/DESIGN.md` for the full design document and `design/architecture.dra
 
 **Spark:** `SparkFactory` in `model/spark.py` — context manager, auto-selects `local[*]` vs Docker cluster via `SPARK_MASTER_URL` env var. S3A JARs (hadoop-aws 3.4.1 + awssdk bundle 2.24.6) are pre-baked in the Docker image.
 
+**Spark reading rule:** Always read partitioned data by pointing Spark at the root S3A prefix — never use `MinioStore` to list files and pass individual paths to `read.parquet()` / `read.format("avro").load()`. Spark walks the partition tree natively and infers partition columns automatically.
+
+```python
+# correct
+df = spark.read.parquet("s3a://market-analysis/ohlcv.bar")
+
+# never do this
+files = [f"s3a://market-analysis/{o.object_name}" for o in store.list_objects(...)]
+df = spark.read.parquet(*files)
+```
+
 **Key config files:** `config/stocks.json` (HOSE symbols + poll interval) · `config/crypto.json` (Binance pairs) · `config/alerts.json` (threshold rules)
