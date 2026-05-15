@@ -13,7 +13,6 @@ from pyspark.sql import DataFrame, functions as F
 from pyspark.sql.types import DoubleType, StringType, StructField, StructType
 from pyspark.sql.window import Window
 
-from model.minio_store import MinioStore
 from model.spark import SparkFactory
 
 load_dotenv()
@@ -136,20 +135,11 @@ def _format_row(row) -> str:
 
 
 def run() -> None:
-    store = MinioStore(ANALYSIS_BUCKET)
-    all_files = [
-        f"s3a://{ANALYSIS_BUCKET}/{obj.object_name}"
-        for obj in store.list_objects(prefix="ohlcv.bar/")
-        if obj.object_name.endswith(".parquet")
-    ]
-    if not all_files:
-        log.warning("No OHLCV data in %s — run ohlcv-daily-ingest first", ANALYSIS_BUCKET)
-        return
-
-    log.info("TechnicalJob | %d Parquet files | computing indicators...", len(all_files))
+    src = f"s3a://{ANALYSIS_BUCKET}/ohlcv.bar"
+    log.info("TechnicalJob | source=%s | computing indicators...", src)
 
     with SparkFactory("TechnicalJob") as spark:
-        df = spark.read.parquet(*all_files)
+        df = spark.read.parquet(src)
         df = _add_indicators(df)
 
         # Report only the latest bar per symbol (all window history was used above)
