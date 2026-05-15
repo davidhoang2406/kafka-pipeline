@@ -70,10 +70,10 @@ def main():
         from consumers.alert_consumer import run
         run()
     elif args.command == "flink-alert":
-        from analysis.price_alert_job import run
+        from analysis.stream.price_alert_job import run
         run()
     elif args.command == "technical":
-        from analysis.technical import run
+        from analysis.batch.technical_job import run
         run()
     elif args.command == "digest":
         from analysis.digest import run

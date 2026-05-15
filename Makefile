@@ -3,7 +3,7 @@
         run-crypto-price-producer \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
-        run-technical run-digest run-screener \
+        run-technical run-spark-technical run-digest run-screener \
         spark-build spark-history-server \
         jupyter jupyter-build \
         test test-unit test-integration
@@ -165,10 +165,20 @@ run-alert-consumer:   ## Real-time price threshold alerts
 	$(PYTHON) main.py alert-consumer
 
 run-flink-alert:      ## [Phase 8] Submit Flink price alert job to the Docker cluster
-	docker exec flink-jobmanager flink run --python /opt/project/analysis/price_alert_job.py
+	docker exec flink-jobmanager flink run --python /opt/project/analysis/stream/price_alert_job.py
 
-run-technical:        ## Technical analysis report (SMA/RSI/MACD/BB)
+run-technical:        ## [Phase 9] Technical analysis report — local mode (no Spark cluster needed)
 	$(PYTHON) main.py technical
+
+run-spark-technical:  ## [Phase 9] Submit TechnicalJob to the Spark cluster
+	docker exec spark-master bash -c '\
+		PYTHONPATH=/opt/project /opt/spark/bin/spark-submit \
+			--master spark://spark-master:7077 \
+			--conf "spark.executorEnv.PYTHONPATH=/opt/project" \
+			--conf "spark.executorEnv.MINIO_ENDPOINT=$$MINIO_ENDPOINT" \
+			--conf "spark.executorEnv.MINIO_ACCESS_KEY=$$MINIO_ACCESS_KEY" \
+			--conf "spark.executorEnv.MINIO_SECRET_KEY=$$MINIO_SECRET_KEY" \
+		/opt/project/main.py technical'
 
 run-digest:           ## Daily market digest (gainers/losers/volume)
 	$(PYTHON) main.py digest

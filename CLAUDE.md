@@ -48,6 +48,8 @@ make run-storage-consumer        # Kafka → MinIO Avro (asset_class/symbol/date
 make run-alert-consumer          # Python threshold alerts
 make run-flink-alert             # Submit PriceAlertJob to Flink cluster
 make run-ohlcv-daily-ingest      # Spark: derive OHLCV bars from today's snapshots → Parquet
+make run-technical               # Spark: SMA/RSI/MACD/BB report from OHLCV history (local mode)
+make run-spark-technical         # Spark: same job submitted to the Docker cluster
 ```
 
 ## Jupyter
@@ -90,7 +92,7 @@ Never commit directly to `main`. Always return the PR URL when done.
 
 See `design/DESIGN.md` for the full design document and `design/architecture.drawio` for the system diagram.
 
-**Data flow:** Producers → Kafka → StorageConsumer → `market-data` MinIO (Avro) → `ohlcv_daily_ingest` Spark job → `market-analysis` MinIO (Parquet) → Jupyter / analysis reports
+**Data flow:** Producers → Kafka → StorageConsumer → `market-data` MinIO (Avro) → `ohlcv_daily_ingest` Spark job → `market-analysis` MinIO (Parquet) → `technical_job` Spark report / Jupyter / analysis reports
 
 **Storage:**
 - `market-data`: `price.snapshot/asset_class={stock|crypto}/symbol={sym}/year=/month=/day=/part-{ts}.avro`
