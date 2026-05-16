@@ -16,10 +16,7 @@ jars/
 .DS_Store
 
 # Jupyter
-notebooks/.ipynb_checkpoints/
-notebooks/**/.ipynb_checkpoints/
-notebooks/*.parquet
-notebooks/**/*.parquet
+notebooks/
 
 # IDE / tool settings
 .idea/
