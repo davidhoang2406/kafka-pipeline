@@ -1,26 +1,23 @@
 # Reads all ohlcv.bar Parquet from market-analysis, computes SMA20/50/200, RSI14,
 # MACD(12/26/9), and Bollinger Bands(20) per symbol using Spark window functions,
-# then writes a text report to reports/technical_YYYY-MM-DD.txt.
-# Phase 9 — teaches: Window.partitionBy/orderBy/rowsBetween, avg/stddev_pop over a
-# rolling window, lag for per-row delta, applyInPandas for EMA-based MACD.
+# then writes the latest indicator snapshot per symbol as Parquet:
+#   s3a://market-analysis/technical.indicators/year=/month=/day=/
+# Partitioned by run date so cross-day queries work across the full history.
 import logging
 import os
 from datetime import date
-from pathlib import Path
 
 from dotenv import load_dotenv
 from pyspark.sql import DataFrame, functions as F
 from pyspark.sql.types import DoubleType, StringType, StructField, StructType
 from pyspark.sql.window import Window
 
-from model.minio_store import MinioStore
 from model.spark import SparkFactory
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-REPORTS_DIR     = Path("reports")
 ANALYSIS_BUCKET = os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis")
 
 # Minimum cumulative bars before an indicator is meaningful
@@ -116,64 +113,34 @@ def _add_indicators(df: DataFrame) -> DataFrame:
     return df.drop("_n")
 
 
-def _format_row(row) -> str:
-    r = row.asDict()
-    parts = [f"{r['symbol']:8s}  price={r['close']:10.2f}"]
-    for label, key in [("SMA20", "sma20"), ("SMA50", "sma50"), ("SMA200", "sma200")]:
-        if r.get(key) is not None:
-            parts.append(f"  {label}={r[key]:.2f}")
-    if r.get("rsi14") is not None:
-        parts.append(f"  RSI14={r['rsi14']:.1f}")
-    if r.get("macd") is not None:
-        parts.append(
-            f"  MACD={r['macd']:.2f}"
-            f"  sig={r['macd_signal']:.2f}"
-            f"  hist={r['macd_hist']:.2f}"
-        )
-    if r.get("bb_mid") is not None:
-        parts.append(f"  BB[{r['bb_lower']:.2f}|{r['bb_mid']:.2f}|{r['bb_upper']:.2f}]")
-    return "".join(parts)
-
-
 def run() -> None:
-    src = f"s3a://{ANALYSIS_BUCKET}/ohlcv.bar"
-    log.info("TechnicalJob | source=%s | computing indicators...", src)
+    src   = f"s3a://{ANALYSIS_BUCKET}/ohlcv.bar"
+    dst   = f"s3a://{ANALYSIS_BUCKET}/technical.indicators"
+    today = date.today()
+    year  = today.strftime("%Y")
+    month = today.strftime("%m")
+    day   = today.strftime("%d")
+
+    log.info("TechnicalJob | src=%s | computing indicators...", src)
 
     with SparkFactory("TechnicalJob") as spark:
+        spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
+
         df = spark.read.parquet(src)
         df = _add_indicators(df)
 
-        # Report only the latest bar per symbol (all window history was used above)
+        # Filter to the latest bar per symbol — full history was used for window computation above
         latest = Window.partitionBy("symbol").orderBy(F.col("time").desc())
-        rows = (
+        df_out = (
             df
             .withColumn("_rn", F.row_number().over(latest))
             .filter(F.col("_rn") == 1)
             .drop("_rn")
-            .orderBy("symbol")
-            .collect()
+            .withColumn("year",  F.lit(year))
+            .withColumn("month", F.lit(month))
+            .withColumn("day",   F.lit(day))
         )
 
-    today    = date.today().isoformat()
-    out_path = REPORTS_DIR / f"technical_{today}.txt"
-    REPORTS_DIR.mkdir(exist_ok=True)
+        df_out.write.mode("overwrite").partitionBy("year", "month", "day").parquet(dst)
 
-    header = f"Technical Analysis Report — {today}"
-    lines  = [header, "=" * len(header), ""]
-    for row in rows:
-        line = _format_row(row)
-        lines.append(line)
-        log.info(line)
-
-    report = "\n".join(lines)
-
-    # Primary sink: MinIO — accessible from Jupyter and persists across container restarts
-    report_key = f"reports/technical_{today}.txt"
-    MinioStore(ANALYSIS_BUCKET).write_text(report_key, report)
-    log.info("Report written to s3://%s/%s (%d symbols)", ANALYSIS_BUCKET, report_key, len(rows))
-
-    # Local copy for dev convenience (inside the container in cluster mode)
-    REPORTS_DIR.mkdir(exist_ok=True)
-    out_path.write_text(report)
-
-    print(report)
+    log.info("TechnicalJob done | date=%s → %s", today.isoformat(), dst)
