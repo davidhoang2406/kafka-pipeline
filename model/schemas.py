@@ -6,7 +6,7 @@ import pyarrow as pa
 PRICE_SNAPSHOT_AVRO_SCHEMA = fastavro.parse_schema({
     "type": "record", "name": "PriceSnapshot",
     "fields": [
-        {"name": "time",       "type": "string"},
+        {"name": "time",       "type": {"type": "long", "logicalType": "timestamp-micros"}},
         {"name": "symbol",     "type": "string"},
         {"name": "exchange",   "type": "string"},
         {"name": "price",      "type": "double"},

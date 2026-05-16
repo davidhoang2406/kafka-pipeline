@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ _SCHEMAS = {
 
 _EXTRACTORS = {
     "price.snapshot": lambda m: {
-        "time":       m["timestamp"],
+        "time":       datetime.fromisoformat(m["timestamp"]).astimezone(timezone.utc),
         "symbol":     m["symbol"],
         "exchange":   m.get("exchange", ""),
         "price":      coerce_float(m["payload"].get("price")),

@@ -1,12 +1,14 @@
 import io
 import json
 import uuid
+from datetime import datetime, timezone
 
 import fastavro
 import pytest
 from kafka import KafkaConsumer
 
 from consumers.storage_consumer import _Buffer, _EXTRACTORS
+from model.minio_store import MinioStore
 from schemas.message import build_envelope
 from tests.conftest import MINIO_BUCKET, TEST_SYMBOL
 
@@ -43,7 +45,7 @@ def _read_avro(minio_client, prefix: str) -> list[dict]:
 def test_price_snapshot_written_to_minio(minio_client):
     """_Buffer should write an Avro file and the row should be readable back."""
     msg = _price_msg(price=12345.0)
-    buf = _Buffer(minio_client, MINIO_BUCKET)
+    buf = _Buffer(MinioStore(MINIO_BUCKET, client=minio_client))
     buf.add(msg)
     buf.flush()
 
@@ -56,7 +58,7 @@ def test_price_snapshot_written_to_minio(minio_client):
 @pytest.mark.integration
 def test_avro_partition_path_structure(minio_client):
     """Avro files must be stored under the correct year/month/day partition prefix."""
-    buf = _Buffer(minio_client, MINIO_BUCKET)
+    buf = _Buffer(MinioStore(MINIO_BUCKET, client=minio_client))
     buf.add(_price_msg())
     buf.flush()
 
@@ -73,7 +75,7 @@ def test_extractor_produces_correct_fields():
     assert row["price"] == 99999.0
     assert row["symbol"] == TEST_SYMBOL
     assert row["exchange"] == "HOSE"
-    assert row["time"] == FIXED_TS
+    assert row["time"] == datetime.fromisoformat(FIXED_TS).astimezone(timezone.utc)
 
 
 @pytest.mark.integration
