@@ -15,7 +15,7 @@ RUN pip3 install --no-cache-dir \
     "pyarrow>=16.0" \
     "minio>=7.2" \
     "python-dotenv==1.2.2" \
-    "pandas>=2.0" \
+    "pandas>=2.2.0" \
     "numpy>=1.26"
 
 # Pre-bake S3A and Avro JARs into Spark's classpath — no internet access needed at job runtime

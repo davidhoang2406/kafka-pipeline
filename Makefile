@@ -3,7 +3,7 @@
         run-crypto-price-producer \
         run-storage-consumer run-alert-consumer \
         run-flink-alert \
-        run-technical run-spark-technical run-digest run-screener \
+        run-spark-technical run-digest run-screener \
         spark-build spark-history-server \
         jupyter jupyter-build \
         test test-unit test-integration
@@ -166,9 +166,6 @@ run-alert-consumer:   ## Real-time price threshold alerts
 
 run-flink-alert:      ## [Phase 8] Submit Flink price alert job to the Docker cluster
 	docker exec flink-jobmanager flink run --python /opt/project/analysis/stream/price_alert_job.py
-
-run-technical:        ## [Phase 9] Technical analysis report — local mode (no Spark cluster needed)
-	$(PYTHON) main.py technical
 
 run-spark-technical:  ## [Phase 9] Submit TechnicalJob to the Spark cluster
 	docker exec spark-master bash -c '\
