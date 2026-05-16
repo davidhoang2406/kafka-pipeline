@@ -1,6 +1,7 @@
 # Derives daily OHLCV bars from price snapshots stored in MinIO (market-data).
 # Runs once at end of day. Reads price.snapshot Avro files for the target date
-# via Spark glob expansion, aggregates into one bar per symbol:
+# via recursiveFileLookup on the root prefix + timestamp range filter, aggregates
+# into one bar per symbol:
 #   open   = price of the first tick (by time)
 #   high   = maximum price across all ticks
 #   low    = minimum price across all ticks
@@ -14,7 +15,7 @@
 import json
 import logging
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -60,21 +61,22 @@ def run(target_date: str | None = None) -> None:
         log.warning("No price snapshots found for %s — nothing to ingest", target.isoformat())
         return
 
-    # Glob path — Spark expands wildcards natively, no SDK-listed paths involved.
-    # A date-scoped glob (not the root prefix) is used because `symbol` appears in both
-    # the Avro schema and the partition path, which causes a duplicate-column error when
-    # Spark infers all partition levels from the root.
-    src_glob = (
-        f"s3a://{RAW_BUCKET}/price.snapshot/"
-        f"asset_class=*/symbol=*/year={year}/month={month}/day={day}"
-    )
+    target_start = datetime(target.year, target.month, target.day, tzinfo=timezone.utc)
+    target_end   = target_start + timedelta(days=1)
     dst = f"s3a://{ANALYSIS_BUCKET}/ohlcv.bar"
 
     with SparkFactory("ohlcv_daily_ingest") as spark:
         # Dynamic mode overwrites only the target date's partitions, not the whole table
         spark.conf.set("spark.sql.sources.partitionOverwriteMode", "dynamic")
 
-        df = spark.read.format("avro").load(src_glob)
+        # recursiveFileLookup avoids glob wildcards in the path, which prevents the
+        # FileStreamSink WARN (S3A's getFileStatus rejects glob strings).
+        # Filter by timestamp range instead of relying on partition path inference.
+        df = (spark.read.format("avro")
+              .option("recursiveFileLookup", "true")
+              .load(f"s3a://{RAW_BUCKET}/price.snapshot")
+              .filter((F.col("time") >= F.lit(target_start)) &
+                      (F.col("time") <  F.lit(target_end))))
 
         # open/close via struct sort (ISO 8601 strings sort lexicographically = chronologically)
         df_ohlcv = (
