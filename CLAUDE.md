@@ -56,12 +56,7 @@ make jupyter-build   # build the image (first time or after requirements change)
 make jupyter         # start container → http://localhost:8888 (no token)
 ```
 
-Three starter notebooks in `notebooks/`:
-- `01_price_snapshots.ipynb` — explore raw Avro files from MinIO
-- `02_ohlcv_analysis.ipynb` — OHLCV charts + SMA/RSI/MACD/BB via `ta`
-- `03_spark_query.ipynb` — cross-day queries using SparkFactory + S3A (local[*] mode, JARs pre-baked in image)
-
-Inside the container `PYTHONPATH=/opt/project` is set, and MinIO/Kafka are reached via their Docker service names (`minio:9000`, `kafka:29092`).
+The container mounts `notebooks/` (gitignored — for local exploration only). Inside it `PYTHONPATH=/opt/project` is set, and MinIO/Kafka are reached via their Docker service names (`minio:9000`, `kafka:29092`).
 
 ## Git Workflow
 

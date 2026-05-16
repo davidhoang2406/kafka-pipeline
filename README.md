@@ -104,7 +104,7 @@ make jupyter-build   # build the image once (downloads S3A JARs — takes a mome
 make jupyter         # start → http://localhost:8888 (no token)
 ```
 
-Starter notebooks in `notebooks/`: price snapshot explorer, OHLCV analysis with technical indicators, and a Spark query playground using `SparkFactory` + S3A in `local[*]` mode.
+The container mounts `notebooks/` from this repo (gitignored — keep your own notebooks here).
 
 ## Spark Cluster
 
