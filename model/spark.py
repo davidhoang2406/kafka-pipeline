@@ -72,6 +72,11 @@ class SparkFactory:
                  .config("spark.hadoop.fs.s3a.secret.key",        os.getenv("MINIO_SECRET_KEY", "minioadmin"))
                  .config("spark.hadoop.fs.s3a.path.style.access", "true")  # required for MinIO
                  .config("spark.hadoop.fs.s3a.impl",              "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                 # AQE: let Spark coalesce shuffle partitions at runtime based on actual data size.
+                 # shuffle.partitions=8 fits a 1-worker/2-core cluster; AQE shrinks it further if needed.
+                 .config("spark.sql.adaptive.enabled",                    "true")
+                 .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+                 .config("spark.sql.shuffle.partitions",                  "8")
                  # Event logging — feeds the Spark History Server at http://localhost:18080
                  .config("spark.eventLog.enabled", "true")
                  .config("spark.eventLog.dir",     "/tmp/spark-events")

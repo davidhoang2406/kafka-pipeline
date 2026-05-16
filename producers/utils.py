@@ -51,3 +51,28 @@ def to_ts(v) -> str:
 def load_json_config(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
+
+
+def evaluate_rules(rules: list[dict], symbol: str, payload: dict, source: str = "") -> list[dict]:
+    """Return every rule that fires for this tick.
+
+    Each returned dict is the original rule entry plus two extra keys:
+      matched_field  — the payload field that was tested
+      matched_value  — the value that crossed the threshold
+    """
+    asset_class_ = asset_class(source)
+    triggered = []
+    for rule in rules:
+        rule_source = rule.get("source", "*")
+        if rule_source != "*" and rule_source != asset_class_:
+            continue
+        if rule["symbol"] != "*" and rule["symbol"] != symbol:
+            continue
+        field = rule["field"]
+        value = payload.get(field)
+        if value is None:
+            continue
+        op_fn = ALERT_OPS.get(rule["operator"])
+        if op_fn and op_fn(value, rule["threshold"]):
+            triggered.append({**rule, "matched_field": field, "matched_value": value})
+    return triggered

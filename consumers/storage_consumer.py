@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -28,7 +29,7 @@ _SCHEMAS = {
 
 _EXTRACTORS = {
     "price.snapshot": lambda m: {
-        "time":       m["timestamp"],
+        "time":       datetime.fromisoformat(m["timestamp"]).astimezone(timezone.utc),
         "symbol":     m["symbol"],
         "exchange":   m.get("exchange", ""),
         "price":      coerce_float(m["payload"].get("price")),
@@ -65,7 +66,12 @@ class _Buffer:
         event_type = msg.get("event_type")
         if event_type not in _EXTRACTORS:
             return
-        row        = _EXTRACTORS[event_type](msg)
+        try:
+            row = _EXTRACTORS[event_type](msg)
+        except Exception:
+            log.warning("Dropping malformed message (event_type=%s symbol=%s)",
+                        event_type, msg.get("symbol"), exc_info=True)
+            return
         symbol     = msg.get("symbol", "UNKNOWN").replace("/", "-")
         ac         = asset_class(msg.get("source", ""))
         date       = msg.get("timestamp", "")[:10] or "unknown"

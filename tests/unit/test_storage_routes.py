@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from consumers.storage_consumer import _SCHEMAS, _EXTRACTORS, _Buffer
@@ -31,7 +32,7 @@ def test_price_snapshot_fields():
         price=85000.0, change=500.0, pct_change=0.59,
         volume=1_000_000, bid=84900.0, ask=85100.0,
     ))
-    assert row["time"]       == TS
+    assert row["time"]       == datetime.fromisoformat(TS).astimezone(timezone.utc)
     assert row["symbol"]     == "VCB"
     assert row["exchange"]   == "HOSE"
     assert row["price"]      == 85000.0

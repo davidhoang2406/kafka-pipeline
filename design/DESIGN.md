@@ -255,9 +255,14 @@ S3A JARs (`hadoop-aws:3.4.1` + `software.amazon.awssdk:bundle:2.24.6`) are pre-b
 **Why derive OHLCV from snapshots rather than fetching from the API again?**
 The price snapshots are already in MinIO — they *are* the source of truth for what prices were observed. Re-fetching OHLCV from vnstock/CCXT would create a second data lineage that might differ from the stored ticks (different API endpoints, different timestamps). Deriving OHLCV from what was actually stored makes the pipeline self-consistent.
 
-### `TechnicalJob` 📋 planned
-- **Source:** `ohlcv.bar` Parquet partitions from `market-analysis`
-- Computes SMA 20/50/200, RSI (14), MACD, Bollinger Bands per symbol
+### `TechnicalJob` ✅ implemented
+- **Source:** all `ohlcv.bar` Parquet files in `market-analysis` (listed via MinIO SDK, loaded via S3A)
+- Full window history is loaded per symbol so rolling indicators use all available bars
+- **SMA 20/50/200** — `F.avg("close").over(Window.rowsBetween(-N+1, 0))` — pure Spark window aggregate
+- **Bollinger Bands (20, ±2σ)** — `F.avg + F.stddev_pop` over the same 20-row window
+- **RSI 14** — `F.lag("close", 1)` for per-row delta, then `F.avg` of gain/loss series over a 14-row window; avoids nested window functions by materialising `_gain`/`_loss` columns first
+- **MACD (12/26/9)** — EMA requires sequential per-symbol computation; implemented via `groupBy("symbol").applyInPandas()` with `pandas.Series.ewm()` — demonstrates the boundary between Spark window functions and pandas UDFs
+- All indicators are null-guarded: SMA200 is omitted when fewer than 200 bars exist; MACD is hidden during the EWM warmup period
 - **Sink:** `reports/technical_YYYY-MM-DD.txt`
 
 ### `DigestJob` 📋 planned
@@ -277,7 +282,8 @@ The price snapshots are already in MinIO — they *are* the source of truth for 
 | **S3A connector** | reads Avro from `s3a://market-data/...`, writes Parquet to `s3a://market-analysis/...` |
 | **DataFrame API** | ohlcv_daily_ingest — groupBy, agg, struct-sort trick for open/close |
 | **Event logging** | SparkFactory → History Server at :18080 |
-| **Window functions** | TechnicalJob (planned) — rolling indicators |
+| **Window functions** | TechnicalJob — `Window.partitionBy/orderBy/rowsBetween`, `avg/stddev_pop` over rolling windows, `lag` for per-row delta |
+| **applyInPandas (grouped map UDF)** | TechnicalJob — MACD uses `pandas.ewm()` inside a per-symbol pandas UDF when EMA is needed |
 
 ---
 
@@ -330,9 +336,11 @@ Kafka/
 │   ├── schemas.py              # Avro (PriceSnapshot) + PyArrow (OHLCVBar) schemas
 │   └── spark.py                # SparkFactory — session lifecycle + S3A config
 ├── analysis/
-│   ├── price_alert_job.py      # Flink: KeyedProcessFunction price alerts
+│   ├── stream/
+│   │   └── price_alert_job.py      # Flink: KeyedProcessFunction price alerts
 │   └── batch/
-│       └── ohlcv_daily_ingest.py  # Spark: snapshots → OHLCV bars → Parquet
+│       ├── ohlcv_daily_ingest.py   # Spark: snapshots → OHLCV bars → Parquet
+│       └── technical_job.py        # Spark: OHLCV history → SMA/RSI/MACD/BB report
 ├── db/
 │   ├── init_minio.py           # Creates market-data + market-analysis buckets
 │   └── flush_minio.py          # Deletes all objects from a bucket (CLI arg)
@@ -366,7 +374,7 @@ Kafka/
 | **6** | ✅ | `crypto_price_producer.py` — CCXT/Binance polling | Multi-source ingestion, normalised envelope |
 | **7** | ✅ | `PriceAlertJob` — PyFlink DataStream + KeyedProcessFunction | Flink: DataStream API, Kafka connector, stateful processing |
 | **8** | ✅ | `ohlcv_daily_ingest` — Spark Docker cluster, S3A, derive OHLCV from snapshots | Spark: cluster mode, S3A connector, struct-sort aggregation |
-| **9** | 📋 | `TechnicalJob` — SMA/RSI/MACD/BB over OHLCV Parquet history | Spark: window functions, rolling indicators |
+| **9** | ✅ | `TechnicalJob` — SMA/RSI/MACD/BB over OHLCV Parquet history | Spark: window functions, rolling indicators, applyInPandas for EMA |
 | **10** | 📋 | `DigestJob` — gainers/losers/volume digest | Spark: DataFrame rankings, daily summary |
 | **11** | 📋 | `ScreenerJob` — P/E, D/E, EPS filter | Spark: join, filter, config-driven thresholds |
 | **12** | 📋 | `VolatilityBurstJob` — Flink sliding window + ValueState | Flink: sliding windows, per-symbol ValueState |

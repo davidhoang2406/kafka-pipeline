@@ -48,6 +48,8 @@ make run-storage-consumer        # Kafka → MinIO Avro (asset_class/symbol/date
 make run-alert-consumer          # Python threshold alerts
 make run-flink-alert             # Submit PriceAlertJob to Flink cluster
 make run-ohlcv-daily-ingest      # Spark: derive OHLCV bars from today's snapshots → Parquet
+make run-technical               # Spark: SMA/RSI/MACD/BB report from OHLCV history (local mode)
+make run-spark-technical         # Spark: same job submitted to the Docker cluster
 ```
 
 ## Jupyter
@@ -90,7 +92,7 @@ Never commit directly to `main`. Always return the PR URL when done.
 
 See `design/DESIGN.md` for the full design document and `design/architecture.drawio` for the system diagram.
 
-**Data flow:** Producers → Kafka → StorageConsumer → `market-data` MinIO (Avro) → `ohlcv_daily_ingest` Spark job → `market-analysis` MinIO (Parquet) → Jupyter / analysis reports
+**Data flow:** Producers → Kafka → StorageConsumer → `market-data` MinIO (Avro) → `ohlcv_daily_ingest` Spark job → `market-analysis` MinIO (Parquet) → `technical_job` Spark report / Jupyter / analysis reports
 
 **Storage:**
 - `market-data`: `price.snapshot/asset_class={stock|crypto}/symbol={sym}/year=/month=/day=/part-{ts}.avro`
@@ -99,5 +101,16 @@ See `design/DESIGN.md` for the full design document and `design/architecture.dra
 **Kafka topics:** `stock.price.realtime` · `crypto.price.realtime` (6 partitions each, key = symbol)
 
 **Spark:** `SparkFactory` in `model/spark.py` — context manager, auto-selects `local[*]` vs Docker cluster via `SPARK_MASTER_URL` env var. S3A JARs (hadoop-aws 3.4.1 + awssdk bundle 2.24.6) are pre-baked in the Docker image.
+
+**Spark reading rule:** Always read partitioned data by pointing Spark at the root S3A prefix — never use `MinioStore` to list files and pass individual paths to `read.parquet()` / `read.format("avro").load()`. Spark walks the partition tree natively and infers partition columns automatically.
+
+```python
+# correct
+df = spark.read.parquet("s3a://market-analysis/ohlcv.bar")
+
+# never do this
+files = [f"s3a://market-analysis/{o.object_name}" for o in store.list_objects(...)]
+df = spark.read.parquet(*files)
+```
 
 **Key config files:** `config/stocks.json` (HOSE symbols + poll interval) · `config/crypto.json` (Binance pairs) · `config/alerts.json` (threshold rules)

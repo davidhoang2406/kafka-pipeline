@@ -22,7 +22,7 @@ ALERTS_CONFIG = Path(__file__).parent.parent / "config" / "alerts.json"
 # the JAR is already in $FLINK_HOME/lib/ and Flink loads it automatically.
 _JAR = Path(__file__).parent.parent / "jars" / "flink-sql-connector-kafka-4.0.1-2.0.jar"
 
-from producers.utils import ALERT_OPS, asset_class
+from producers.utils import evaluate_rules
 
 
 def run() -> None:
@@ -60,39 +60,28 @@ def run() -> None:
         """
 
         def process_element(self, msg: dict, ctx: "KeyedProcessFunction.Context"):
-            source      = msg.get("source", "")
-            asset_class_ = asset_class(source)
-            symbol      = msg.get("symbol", "")
-            payload     = msg.get("payload", {})
-            price       = payload.get("price", 0.0)
-            pct         = payload.get("pct_change", 0.0)
-            ts          = msg.get("timestamp", "")[:19]
+            symbol  = msg.get("symbol", "")
+            payload = msg.get("payload", {})
+            source  = msg.get("source", "")
+            price   = payload.get("price", 0.0)
+            pct     = payload.get("pct_change", 0.0)
+            ts      = msg.get("timestamp", "")[:19]
 
             log.info("tick  %-12s  price=%.4f  pct=%+.2f%%  source=%s", symbol, price, pct, source)
 
-            for rule in rules:
-                rule_source = rule.get("source", "*")
-                if rule_source != "*" and rule_source != asset_class_:
-                    continue
-                if rule["symbol"] != "*" and rule["symbol"] != symbol:
-                    continue
-                field = rule["field"]
-                value = payload.get(field)
-                if value is None:
-                    continue
-                op_fn = ALERT_OPS.get(rule["operator"])
-                if op_fn and op_fn(value, rule["threshold"]):
-                    alert = (
-                        f"[ALERT {ts}] {symbol:10s} | {rule['message']}"
-                        f" | price={price:.2f}  pct={pct:+.2f}%  {field}={value}"
-                    )
-                    log.warning(alert)
-                    yield alert
+            for hit in evaluate_rules(rules, symbol, payload, source):
+                alert = (
+                    f"[ALERT {ts}] {symbol:10s} | {hit['message']}"
+                    f" | price={price:.2f}  pct={pct:+.2f}%"
+                    f"  {hit['matched_field']}={hit['matched_value']}"
+                )
+                log.warning(alert)
+                yield alert
 
     # ── Build pipeline ────────────────────────────────────────────────────────
 
     env = StreamExecutionEnvironment.get_execution_environment()
-    env.set_parallelism(1)
+    env.set_parallelism(4)  # matches taskmanager.numberOfTaskSlots in docker-compose
 
     # Load Kafka connector JAR in local mode; Docker cluster has it in $FLINK_HOME/lib/
     if _JAR.exists():

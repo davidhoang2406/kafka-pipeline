@@ -14,7 +14,9 @@ RUN pip3 install --no-cache-dir \
     "fastavro>=1.9" \
     "pyarrow>=16.0" \
     "minio>=7.2" \
-    "python-dotenv==1.2.2"
+    "python-dotenv==1.2.2" \
+    "pandas>=2.0" \
+    "numpy>=1.26"
 
 # Pre-bake S3A and Avro JARs into Spark's classpath — no internet access needed at job runtime
 # hadoop-aws must match Spark 4.1.1's bundled Hadoop (3.4.1); mismatched versions cause
