@@ -9,7 +9,7 @@ from datetime import date
 
 from dotenv import load_dotenv
 from pyspark.sql import DataFrame, functions as F
-from pyspark.sql.types import DoubleType, StringType, StructField, StructType
+from pyspark.sql.types import DoubleType, StringType, StructField, StructType, TimestampType
 from pyspark.sql.window import Window
 
 from model.spark import SparkFactory
@@ -25,7 +25,7 @@ _MIN = {"sma20": 20, "sma50": 50, "sma200": 200, "rsi": 14, "bb": 20, "macd": 26
 
 _MACD_SCHEMA = StructType([
     StructField("symbol",      StringType()),
-    StructField("time",        StringType()),
+    StructField("time",        TimestampType()),
     StructField("macd",        DoubleType()),
     StructField("macd_signal", DoubleType()),
     StructField("macd_hist",   DoubleType()),

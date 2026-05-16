@@ -21,7 +21,7 @@ PRICE_SNAPSHOT_AVRO_SCHEMA = fastavro.parse_schema({
 # ── Parquet (batch ingest → MinIO market-analysis) ─────────────────────────────
 
 OHLCV_BAR_SCHEMA = pa.schema([
-    pa.field("time",     pa.string()),
+    pa.field("time",     pa.timestamp("us", tz="UTC")),
     pa.field("symbol",   pa.string()),
     pa.field("exchange", pa.string()),
     pa.field("open",     pa.float64()),

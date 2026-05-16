@@ -87,7 +87,8 @@ def run(target_date: str | None = None) -> None:
                 F.sum("volume").alias("volume"),
                 F.min("time").alias("_min_time"),
             )
-            .withColumn("time", F.concat(F.col("_min_time").substr(1, 10), F.lit("T00:00:00+00:00")))
+            # Parse the date portion of the earliest tick into a proper midnight UTC timestamp
+            .withColumn("time", F.to_timestamp(F.col("_min_time").substr(1, 10), "yyyy-MM-dd"))
             # asset_class is in the partition path but not the Avro schema — derive from symbol
             .withColumn("asset_class",
                 F.when(F.col("symbol").contains("/"), F.lit("crypto")).otherwise(F.lit("stock")))
