@@ -105,6 +105,15 @@ class MinioStore:
                f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
         self.write_avro(key, schema, rows)
 
+    def write_text(self, key: str, text: str) -> None:
+        """Upload a UTF-8 text string to the exact key."""
+        data = text.encode()
+        self._client.put_object(
+            self.bucket, key, io.BytesIO(data), len(data),
+            content_type="text/plain; charset=utf-8",
+        )
+        log.info("wrote text → s3://%s/%s", self.bucket, key)
+
     def write_parquet(self, key: str, schema: pa.Schema, rows: list[dict]) -> None:
         """Serialize rows as Snappy-compressed Parquet and upload to the exact key."""
         if not rows:

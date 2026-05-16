@@ -13,6 +13,7 @@ from pyspark.sql import DataFrame, functions as F
 from pyspark.sql.types import DoubleType, StringType, StructField, StructType
 from pyspark.sql.window import Window
 
+from model.minio_store import MinioStore
 from model.spark import SparkFactory
 
 load_dotenv()
@@ -165,6 +166,14 @@ def run() -> None:
         log.info(line)
 
     report = "\n".join(lines)
+
+    # Primary sink: MinIO — accessible from Jupyter and persists across container restarts
+    report_key = f"reports/technical_{today}.txt"
+    MinioStore(ANALYSIS_BUCKET).write_text(report_key, report)
+    log.info("Report written to s3://%s/%s (%d symbols)", ANALYSIS_BUCKET, report_key, len(rows))
+
+    # Local copy for dev convenience (inside the container in cluster mode)
+    REPORTS_DIR.mkdir(exist_ok=True)
     out_path.write_text(report)
-    log.info("Report written to %s (%d symbols)", out_path, len(rows))
+
     print(report)

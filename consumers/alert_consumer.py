@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from consumers.base_consumer import BaseConsumer
-from producers.utils import ALERT_OPS, asset_class, load_json_config
+from producers.utils import evaluate_rules, load_json_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -17,27 +17,18 @@ ALERTS_CONFIG = Path(__file__).parent.parent / "config" / "alerts.json"
 
 
 def _check(rules: list[dict], symbol: str, payload: dict, source: str = "") -> None:
-    asset_class_ = asset_class(source)
+    triggered = evaluate_rules(rules, symbol, payload, source)
+    if not triggered:
+        return
     now   = datetime.now(timezone.utc).strftime("%H:%M:%S")
     price = payload.get("price", 0.0)
     pct   = payload.get("pct_change", 0.0)
-
-    for rule in rules:
-        rule_source = rule.get("source", "*")
-        if rule_source != "*" and rule_source != asset_class_:
-            continue
-        if rule["symbol"] != "*" and rule["symbol"] != symbol:
-            continue
-        field = rule["field"]
-        value = payload.get(field)
-        if value is None:
-            continue
-        op_fn = ALERT_OPS.get(rule["operator"])
-        if op_fn and op_fn(value, rule["threshold"]):
-            print(
-                f"[ALERT {now}] {symbol:10s} | {rule['message']}"
-                f" | price={price:.2f}  pct={pct:+.2f}%  {field}={value}"
-            )
+    for hit in triggered:
+        print(
+            f"[ALERT {now}] {symbol:10s} | {hit['message']}"
+            f" | price={price:.2f}  pct={pct:+.2f}%"
+            f"  {hit['matched_field']}={hit['matched_value']}"
+        )
 
 
 def run():
