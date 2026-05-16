@@ -11,11 +11,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and fill in values (defaults work with the Docker Compose setup as-is):
-
-```bash
-cp .env.example .env
-```
+Environment variables live in `.env` (committed; the defaults work with the Docker Compose setup as-is).
 
 ## Infrastructure
 

@@ -47,8 +47,6 @@ git clone https://github.com/davidhoang2406/kafka-pipeline.git
 cd kafka-pipeline
 python3.12 -m venv .venv && source .venv/bin/activate
 
-cp .env.example .env          # defaults work out of the box
-
 make install                  # interactive: select Kafka / MinIO / Flink / Spark
 ```
 

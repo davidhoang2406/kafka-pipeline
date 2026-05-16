@@ -354,7 +354,7 @@ Kafka/
 │   └── architecture.drawio     # System diagram
 ├── reports/                    # Generated analysis output (gitignored)
 ├── jars/                       # Flink Kafka connector JAR (local submission)
-├── .env.example
+├── .env
 ├── requirements.txt
 ├── Makefile
 └── main.py                     # CLI entry point
