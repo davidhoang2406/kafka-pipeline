@@ -48,8 +48,7 @@ make run-storage-consumer        # Kafka → MinIO Avro (asset_class/symbol/date
 make run-alert-consumer          # Python threshold alerts
 make run-flink-alert             # Submit PriceAlertJob to Flink cluster
 make run-ohlcv-daily-ingest      # Spark: derive OHLCV bars from today's snapshots → Parquet
-make run-technical               # Spark: SMA/RSI/MACD/BB report from OHLCV history (local mode)
-make run-spark-technical         # Spark: same job submitted to the Docker cluster
+make run-spark-technical         # Spark: SMA/RSI/MACD/BB report submitted to the Docker cluster
 ```
 
 ## Jupyter
