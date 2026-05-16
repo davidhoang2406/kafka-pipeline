@@ -145,7 +145,7 @@ run-stock-price-producer:   ## Poll vnstock price board → Kafka (every 30 s)
 spark-build: ## Build (or rebuild) the Spark Docker image
 	$(COMPOSE) build spark-master spark-worker spark-history-server
 
-run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster
+run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluster (DATE=YYYY-MM-DD for backfill)
 	docker exec spark-master bash -c '\
 		PYTHONPATH=/opt/project /opt/spark/bin/spark-submit \
 			--master spark://spark-master:7077 \
@@ -153,7 +153,7 @@ run-ohlcv-daily-ingest:     ## Submit OHLCV daily ingest job to the Spark cluste
 			--conf "spark.executorEnv.MINIO_ENDPOINT=$$MINIO_ENDPOINT" \
 			--conf "spark.executorEnv.MINIO_ACCESS_KEY=$$MINIO_ACCESS_KEY" \
 			--conf "spark.executorEnv.MINIO_SECRET_KEY=$$MINIO_SECRET_KEY" \
-		/opt/project/main.py ohlcv-daily-ingest'
+		/opt/project/main.py ohlcv-daily-ingest $(if $(DATE),--date $(DATE))'
 
 run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s)
 	$(PYTHON) main.py crypto-price-producer

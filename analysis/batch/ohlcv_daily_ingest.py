@@ -9,12 +9,13 @@
 # Spark writes directly to MinIO with mode=overwrite, making re-runs idempotent:
 #   s3a://market-analysis/ohlcv.bar/asset_class={stock|crypto}/year=/month=/day=/
 #
-# Override the target date:
-#   INGEST_DATE=YYYY-MM-DD   absolute date (backfill)
-#   LOOKBACK_DAYS=N          N days before today (default 0 = today)
+# Default behaviour is controlled by config/ohlcv_ingest.json.
+# Pass --date YYYY-MM-DD via the CLI (main.py ohlcv-daily-ingest --date ...) for backfill.
+import json
 import logging
 import os
 from datetime import date, timedelta
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pyspark.sql import functions as F
@@ -28,16 +29,17 @@ log = logging.getLogger(__name__)
 
 RAW_BUCKET      = os.getenv("MINIO_BUCKET", "market-data")
 ANALYSIS_BUCKET = os.getenv("MINIO_ANALYSIS_BUCKET", "market-analysis")
+CONFIG          = Path(__file__).parent.parent.parent / "config" / "ohlcv_ingest.json"
 
 
-def run() -> None:
-    # Resolve target date: explicit override → lookback offset → today
-    ingest_date_str = os.getenv("INGEST_DATE")
-    if ingest_date_str:
-        target = date.fromisoformat(ingest_date_str)
+def run(target_date: str | None = None) -> None:
+    # CLI --date takes priority; otherwise use lookback_days from config
+    if target_date:
+        target = date.fromisoformat(target_date)
     else:
-        lookback = int(os.getenv("LOOKBACK_DAYS", "0"))
-        target = date.today() - timedelta(days=lookback)
+        config   = json.loads(CONFIG.read_text())
+        lookback = config.get("lookback_days", 0)
+        target   = date.today() - timedelta(days=lookback)
 
     year  = target.strftime("%Y")
     month = target.strftime("%m")

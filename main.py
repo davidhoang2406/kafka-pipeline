@@ -8,7 +8,8 @@ def main():
     sub.add_parser("smoke-producer",        help="[Phase 2] Send one hardcoded message to Kafka")
     sub.add_parser("smoke-consumer",        help="[Phase 2] Print every message on stock.price.realtime")
     sub.add_parser("stock-price-producer",  help="Poll vnstock price board → Kafka (every 30 s)")
-    sub.add_parser("ohlcv-daily-ingest",    help="Derive daily OHLCV bars from price snapshots in MinIO")
+    ohlcv_p = sub.add_parser("ohlcv-daily-ingest", help="Derive daily OHLCV bars from price snapshots in MinIO")
+    ohlcv_p.add_argument("--date", metavar="YYYY-MM-DD", help="Target date for ingest (default: today)")
     sub.add_parser("crypto-price-producer", help="Poll crypto exchange prices → Kafka (every 60 s)")
     sub.add_parser("storage-consumer",      help="Consume all topics and write to MinIO as Avro")
     sub.add_parser("alert-consumer",        help="Consume price topic and fire threshold alerts")
@@ -59,7 +60,7 @@ def main():
         run()
     elif args.command == "ohlcv-daily-ingest":
         from analysis.batch.ohlcv_daily_ingest import run
-        run()
+        run(target_date=args.date)
     elif args.command == "crypto-price-producer":
         from producers.crypto_price_producer import run
         run()
