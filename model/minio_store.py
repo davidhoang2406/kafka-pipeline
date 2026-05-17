@@ -8,7 +8,6 @@ Usage
     store = MinioStore("market-data")          # client built from env vars
     store.ensure_bucket()                      # idempotent create
     store.set_expiry_lifecycle(days=30)        # lifecycle rule
-    store.write_partitioned("price.snapshot", "VCB", rows, schema)
     store.write_avro("custom/key.avro", schema, rows)
     n = store.flush_all()                      # delete every object
 """
@@ -21,6 +20,7 @@ import fastavro
 import pyarrow as pa
 import pyarrow.parquet as pq
 from minio import Minio
+from minio.deleteobjects import DeleteObject
 from minio.lifecycleconfig import Expiration, LifecycleConfig, Rule
 
 log = logging.getLogger(__name__)
@@ -83,28 +83,6 @@ class MinioStore:
         )
         log.info("wrote %d rows → s3://%s/%s", len(rows), self.bucket, key)
 
-    def write_partitioned(
-        self,
-        event_type: str,
-        symbol: str,
-        rows: list[dict],
-        schema,
-    ) -> None:
-        """Write rows using the standard partition layout, deriving the date from rows[0]['time'].
-
-        Layout: {event_type}/symbol={symbol}/year={Y}/month={m}/day={d}/part-{ts_ms}.avro
-        Slashes in symbol are replaced with dashes (e.g. BTC/USDT → BTC-USDT).
-        """
-        if not rows:
-            return
-        date_str             = rows[0]["time"][:10]
-        year, month, day     = date_str[:4], date_str[5:7], date_str[8:10]
-        safe_symbol          = symbol.replace("/", "-")
-        ts_ms                = int(time.time() * 1000)
-        key = (f"{event_type}/symbol={safe_symbol}"
-               f"/year={year}/month={month}/day={day}/part-{ts_ms}.avro")
-        self.write_avro(key, schema, rows)
-
     def write_text(self, key: str, text: str) -> None:
         """Upload a UTF-8 text string to the exact key."""
         data = text.encode()
@@ -127,28 +105,6 @@ class MinioStore:
             content_type="application/octet-stream",
         )
         log.info("wrote %d rows → s3://%s/%s", len(rows), self.bucket, key)
-
-    def write_partitioned_parquet(
-        self,
-        event_type: str,
-        symbol: str,
-        rows: list[dict],
-        schema: pa.Schema,
-    ) -> None:
-        """Write rows as Parquet using the standard partition layout, deriving the date from rows[0]['time'].
-
-        Layout: {event_type}/symbol={symbol}/year={Y}/month={m}/day={d}/part-{ts_ms}.parquet
-        Slashes in symbol are replaced with dashes (e.g. BTC/USDT → BTC-USDT).
-        """
-        if not rows:
-            return
-        date_str             = rows[0]["time"][:10]
-        year, month, day     = date_str[:4], date_str[5:7], date_str[8:10]
-        safe_symbol          = symbol.replace("/", "-")
-        ts_ms                = int(time.time() * 1000)
-        key = (f"{event_type}/symbol={safe_symbol}"
-               f"/year={year}/month={month}/day={day}/part-{ts_ms}.parquet")
-        self.write_parquet(key, schema, rows)
 
     # ── Object reads / deletes ─────────────────────────────────────────────────
 
@@ -183,7 +139,12 @@ class MinioStore:
         Returns the number of objects deleted.
         """
         objs = list(self.list_objects(prefix=prefix))
-        for obj in objs:
-            self.delete_object(obj.object_name)
+        errors = list(self._client.remove_objects(
+            self.bucket,
+            (DeleteObject(obj.object_name) for obj in objs),
+        ))
+        if errors:
+            for err in errors:
+                log.error("delete failed: %s", err)
         log.info("deleted %d objects from s3://%s/%s*", len(objs), self.bucket, prefix)
         return len(objs)
