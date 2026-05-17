@@ -1,7 +1,7 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
         run-stock-price-producer run-ohlcv-daily-ingest \
         run-crypto-price-producer \
-        run-storage-consumer run-alert-consumer \
+        run-storage-consumer \
         run-flink-alert \
         run-spark-technical run-digest run-screener \
         spark-build spark-history-server \
@@ -160,9 +160,6 @@ run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s
 
 run-storage-consumer: ## Kafka → MinIO (Avro)
 	$(PYTHON) main.py storage-consumer
-
-run-alert-consumer:   ## Real-time price threshold alerts
-	$(PYTHON) main.py alert-consumer
 
 run-flink-alert:      ## [Phase 8] Submit Flink price alert job to the Docker cluster
 	docker exec flink-jobmanager flink run --python /opt/project/analysis/stream/price_alert_job.py

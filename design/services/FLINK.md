@@ -4,9 +4,9 @@
 
 Apache Flink runs the **stateful streaming alert job** (`analysis/stream/price_alert_job.py`). It consumes both price topics, partitions by symbol via `key_by`, and evaluates per-tick alert rules with a `KeyedProcessFunction`.
 
-A simpler Python alternative — `consumers/alert_consumer.py` — exists for the same purpose but is **stateless**. Flink is for use cases where per-symbol state (debounce windows, volatility bursts, exponential moving averages) matters.
+This is the only alerter in the pipeline. An earlier stateless Python version (`consumers/alert_consumer.py`, Phase 5) was removed once Flink covered the same rules — see `design/DESIGN.md` §3.4 for the rationale.
 
-Phase 12 (planned) will add `VolatilityBurstJob` here.
+Phase 13 (planned) will add `VolatilityBurstJob` here.
 
 ## 2. Containers
 
@@ -75,21 +75,10 @@ Alert rules come from `config/alerts.json` and are baked into the operator state
 - **PyFlink wheel build failure.** The Dockerfile copies JDK headers from `eclipse-temurin:17-jdk` because `flink:2.0-java17` ships a JRE only. Removing that COPY breaks the image build.
 - **Wrong Kafka listener.** Jobs running inside the Flink container must use `kafka:29092`, never `localhost:9092`. The compose env sets this correctly; don't override in job code.
 
-## 8. Why Both `alert_consumer.py` and `PriceAlertJob` Exist
-
-| | `consumers/alert_consumer.py` | `analysis/stream/price_alert_job.py` |
-|---|---|---|
-| Runtime | Plain Python loop on the host | Flink TaskManager (JVM + PyFlink) |
-| State | Stateless (each tick evaluated in isolation) | Stateful (per-symbol `KeyedProcessFunction`) |
-| Fault tolerance | None (crashes lose progress) | Checkpointing available (not configured yet) |
-| Parallelism | One process | `numberOfTaskSlots` |
-| When to use | Simple threshold rules, fast iteration | Windowed/stateful rules, future production |
-
-Phase 7 introduced the Flink version specifically to learn streaming-state patterns; phases 8+ kept both because each tells a different story in the codebase.
-
-## 9. References
+## 8. References
 
 - `analysis/stream/price_alert_job.py` — the only Flink job in the repo
+- `producers/utils.py::evaluate_rules` — shared rule-evaluation function (also unit-tested in `tests/unit/test_alert_rules.py`)
 - `docker/flink.Dockerfile`
 - `config/alerts.json`
-- `design/DESIGN.md` §5 (alert job rationale)
+- `design/DESIGN.md` §3.4 (alert job rationale)

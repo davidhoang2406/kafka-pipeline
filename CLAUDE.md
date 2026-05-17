@@ -41,8 +41,7 @@ Key service URLs: Kafka UI :8080 · MinIO console :9001 · Flink UI :8081 · Spa
 make run-stock-price-producer    # vnstock → stock.price.realtime (every 30 s)
 make run-crypto-price-producer   # CCXT/Binance → crypto.price.realtime
 make run-storage-consumer        # Kafka → MinIO Avro (asset_class/symbol/date partitions)
-make run-alert-consumer          # Python threshold alerts
-make run-flink-alert             # Submit PriceAlertJob to Flink cluster
+make run-flink-alert             # Submit PriceAlertJob — stateful price threshold alerts
 make run-ohlcv-daily-ingest      # Spark: derive OHLCV bars from today's snapshots → Parquet
 make run-spark-technical         # Spark: SMA/RSI/MACD/BB report submitted to the Docker cluster
 ```

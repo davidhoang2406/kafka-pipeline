@@ -8,7 +8,7 @@ Two topics carry all live data:
 
 | Topic | Partitions | Key | Cadence | Producer | Consumers |
 |---|---|---|---|---|---|
-| `stock.price.realtime` | 6 | symbol (e.g. `VCB`) | ~30 s | `producers/stock_price_producer.py` (vnstock KBS) | `storage_consumer`, `alert_consumer`, `PriceAlertJob` |
+| `stock.price.realtime` | 6 | symbol (e.g. `VCB`) | ~30 s | `producers/stock_price_producer.py` (vnstock KBS) | `storage_consumer`, `PriceAlertJob` (Flink) |
 | `crypto.price.realtime` | 6 | pair with `-` (e.g. `BTC-USDT`) | 5–60 s | `producers/crypto_price_producer.py` (CCXT/Binance) | same |
 
 Both use replication factor 1 (single-broker setup).
@@ -94,6 +94,6 @@ Both topics carry the same JSON envelope (defined in `schemas/message.py`):
 ## 9. References
 
 - `producers/base_producer.py`, `producers/stock_price_producer.py`, `producers/crypto_price_producer.py`
-- `consumers/base_consumer.py`, `consumers/storage_consumer.py`, `consumers/alert_consumer.py`
+- `consumers/base_consumer.py`, `consumers/storage_consumer.py`
 - `analysis/stream/price_alert_job.py` (Flink)
 - `design/DESIGN.md` §3–§4 (topic + schema rationale)

@@ -6,18 +6,7 @@ A real-time data streaming pipeline for Vietnamese stock and cryptocurrency mark
 
 Pull-based market APIs (vnstock, Binance) become a continuous push pipeline. Producers fetch once and publish to Kafka; any number of consumers (storage, alerts, batch jobs) read the same stream independently.
 
-```
-                 INGESTION                          STREAM LAYER
-vnstock API ─► stock_price_producer  ─►  stock.price.realtime  ─┐
-                                                                  ├─► StorageConsumer ─► market-data (Avro)
-Binance API ─► crypto_price_producer ─► crypto.price.realtime ─┘  ├─► AlertConsumer    ─► stdout
-                                                                   └─► Flink: PriceAlertJob ─► stdout
-
-                                                                                  market-data
-                                       BATCH LAYER                                    │
-                                                                                       ▼
-Dagster ─orchestrates─► ohlcv_daily_ingest (Spark) ─► market-analysis (Parquet) ─► technical_job (Spark) ─► Jupyter
-```
+![Untitled-2026-05-17-0037.png](design/images/architecture.png)
 
 **Editable architecture diagram:** [`design/images/architecture.excalidraw`](design/images/architecture.excalidraw) — open in [excalidraw.com](https://excalidraw.com) (File → Open).
 
@@ -76,10 +65,9 @@ make run-crypto-price-producer   # Crypto prices → Kafka (every 5–60 s)
 
 # Consumers (run continuously)
 make run-storage-consumer        # Kafka → MinIO (Avro, partitioned by asset_class/symbol/date)
-make run-alert-consumer          # Real-time price threshold alerts (Python, stateless)
 
 # Flink job (requires Flink containers running)
-make run-flink-alert             # Submit PriceAlertJob to Flink cluster
+make run-flink-alert             # Submit PriceAlertJob — stateful price threshold alerts
 
 # Spark batch jobs (run once at end of day; requires Spark containers running)
 make run-ohlcv-daily-ingest      # Derive OHLCV bars from today's snapshots → MinIO Parquet
@@ -112,7 +100,7 @@ technical.indicators/year={Y}/month={M}/day={D}/part-{ts}.parquet
 
 ## Alert Rules
 
-Rules in `config/alerts.json` are evaluated by both `alert_consumer.py` (Python, stateless) and `PriceAlertJob` (Flink, stateful):
+Rules in `config/alerts.json` are evaluated by `PriceAlertJob` (Flink, stateful):
 
 ```json
 [
@@ -135,7 +123,7 @@ make test-integration   # Integration tests (requires Kafka + MinIO running)
 ├── docker/                     # docker-compose.yml + service Dockerfiles
 ├── config/                     # stocks.json, crypto.json, alerts.json
 ├── producers/                  # stock_price_producer, crypto_price_producer
-├── consumers/                  # storage_consumer, alert_consumer
+├── consumers/                  # storage_consumer (Kafka → MinIO)
 ├── model/                      # MinioStore, SparkFactory, Avro/Parquet schemas
 ├── analysis/
 │   ├── stream/price_alert_job.py        # Flink alert job
@@ -158,7 +146,7 @@ make test-integration   # Integration tests (requires Kafka + MinIO running)
 | 2  | ✅ | Smoke producer + consumer |
 | 3  | ✅ | `stock_price_producer` — vnstock polling loop |
 | 4  | ✅ | `storage_consumer` — Kafka → MinIO (Avro) |
-| 5  | ✅ | `alert_consumer` — configurable threshold rules |
+| 5  | ✅ | `alert_consumer` — stateless Python alerter (superseded by `PriceAlertJob` in Phase 7; removed) |
 | 6  | ✅ | `crypto_price_producer` — CCXT/Binance polling |
 | 7  | ✅ | `PriceAlertJob` — PyFlink DataStream + KeyedProcessFunction |
 | 8  | ✅ | `ohlcv_daily_ingest` — Spark Docker cluster, S3A, derive OHLCV |

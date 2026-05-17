@@ -92,29 +92,28 @@ def test_custom_timestamp_passes_through():
 
 ### `tests/unit/test_alert_rules.py` — rule evaluation
 
-This is the highest-value unit test because `_check()` is pure logic with no I/O.
+`evaluate_rules()` (in `producers/utils.py`) is pure logic with no I/O — used by `PriceAlertJob` (Flink) and exercised directly in unit tests.
 
-| Test | Rule | Payload | Expected output |
+| Test | Rule | Payload | Expected |
 |---|---|---|---|
-| `test_wildcard_sharp_drop` | `* pct_change <= -3.0` | `pct_change=-3.5` | prints alert |
-| `test_wildcard_no_trigger` | `* pct_change <= -3.0` | `pct_change=-1.0` | silent |
-| `test_symbol_specific_match` | `VCB pct_change >= 2.0` | symbol=VCB, pct=2.5 | prints alert |
-| `test_symbol_specific_skip` | `VCB pct_change >= 2.0` | symbol=ACB, pct=2.5 | silent |
-| `test_zero_price_flag` | `* price == 0.0` | `price=0.0` | prints alert |
-| `test_all_operators` | one rule per operator | boundary values | correct trigger/no-trigger |
+| `test_wildcard_sharp_drop_fires` | `* pct_change <= -3.0` | `pct_change=-3.5` | 1 hit |
+| `test_wildcard_no_trigger_below_threshold` | `* pct_change <= -3.0` | `pct_change=-1.0` | `[]` |
+| `test_symbol_specific_match_fires` | `VCB pct_change >= 2.0` | symbol=VCB, pct=2.5 | 1 hit |
+| `test_symbol_specific_skips_other_symbol` | `VCB pct_change >= 2.0` | symbol=ACB, pct=2.5 | `[]` |
+| `test_zero_price_flag_fires` | `* price == 0.0` | `price=0.0` | 1 hit |
+| `test_operator` (parametrized) | one rule per operator | boundary values | correct fire/skip |
 
 ```python
-from consumers.alert_consumer import _check
+from producers.utils import evaluate_rules
 
 RULES = [{"symbol": "*", "field": "pct_change", "operator": "<=", "threshold": -3.0, "message": "drop"}]
 
-def test_wildcard_sharp_drop(capsys):
-    _check(RULES, "HPG", {"price": 50.0, "pct_change": -3.5})
-    assert "HPG" in capsys.readouterr().out
+def test_wildcard_sharp_drop_fires():
+    hits = evaluate_rules(RULES, "HPG", {"price": 50.0, "pct_change": -3.5})
+    assert len(hits) == 1
 
-def test_wildcard_no_trigger(capsys):
-    _check(RULES, "HPG", {"price": 50.0, "pct_change": -1.0})
-    assert capsys.readouterr().out == ""
+def test_wildcard_no_trigger_below_threshold():
+    assert evaluate_rules(RULES, "HPG", {"price": 50.0, "pct_change": -1.0}) == []
 ```
 
 ---
@@ -156,9 +155,6 @@ All integration tests use a shared `conftest.py` fixture that:
 | `test_ohlcv_avro_schema` | Flush one bar → read back with fastavro | Record has `open`, `high`, `low`, `close`, `volume` fields |
 | `test_ohlcv_extractor_fields` | Call `_EXTRACTORS["ohlcv.bar"]` directly | Row dict has all OHLCV fields |
 
-### `tests/integration/test_alert_pipeline.py`
+### Alert path — covered by unit tests only
 
-| Test | Steps | Assert |
-|---|---|---|
-| `test_alert_fires_on_threshold` | Produce `price.snapshot` with `pct_change=-4.0` → run AlertConsumer | Console output contains `[ALERT` |
-| `test_alert_silent_below_threshold` | Produce with `pct_change=-1.0` | No output |
+The earlier `tests/integration/test_alert_pipeline.py` exercised `consumers/alert_consumer.py` via a real Kafka round-trip. With `alert_consumer` removed, integration coverage for alerts would need a Flink-cluster harness (out of scope for the unit/integration split in this repo). Rule correctness is covered by `tests/unit/test_alert_rules.py` against the shared `evaluate_rules()` function.

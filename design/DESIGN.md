@@ -27,25 +27,7 @@ Kafka turns the pull into a push pipeline. Producers fetch from the upstream API
 
 **Data flow (left to right, top half is the live stream layer; bottom half is the batch layer):**
 
-```
-                      INGESTION                              STREAM LAYER
-┌──────────────┐    ┌────────────────────┐    ┌──────────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│ vnstock API  │ ─► │ stock_price_       │ ─► │ stock.price.realtime │ ─► │ StorageConsumer  │ ─► │ MinIO market-data   │
-│ (KBS)        │    │ producer           │    │   (Kafka topic)      │    │                  │    │   (Avro)            │
-└──────────────┘    └────────────────────┘    └──────────────────────┘    ├──────────────────┤    └─────────┬───────────┘
-                                                         │                │ AlertConsumer    │ ─► alerts    │
-┌──────────────┐    ┌────────────────────┐    ┌──────────────────────┐    ├──────────────────┤              │
-│ Binance API  │ ─► │ crypto_price_      │ ─► │ crypto.price.realtime│ ─► │ Flink            │ ─► alerts    │
-│ (CCXT)       │    │ producer           │    │   (Kafka topic)      │    │ PriceAlertJob    │              │
-└──────────────┘    └────────────────────┘    └──────────────────────┘    └──────────────────┘              │
-                                                                                                              │
-                                                          BATCH LAYER                                         │
-                                                                                                              ▼
-                       ┌──────────────┐         ┌──────────────────────┐         ┌──────────────────────────┐
-                       │   Dagster    │ ──orch─►│ ohlcv_daily_ingest   │ ──────► │ MinIO market-analysis    │ ──► Jupyter
-                       │ (Phase 10)   │ ──orch─►│ technical_job        │ ──read─►│   (Parquet)              │
-                       └──────────────┘         └──────────────────────┘         └──────────────────────────┘
-```
+![Untitled-2026-05-17-0037.png](images/architecture.png)
 
 Two-tier storage:
 - **`market-data`** — raw streaming data (Avro). 30-day lifecycle. Recoverable from upstream APIs.
@@ -74,19 +56,11 @@ Splitting buckets makes the lifecycle policy trivial to express (one rule per bu
 
 The two formats reflect how each layer is used, not arbitrary preference.
 
-### 3.4 Why Flink for alerts but also a Python alternative?
+### 3.4 Why Flink for alerts?
 
-`consumers/alert_consumer.py` (stateless Python loop) and `analysis/stream/price_alert_job.py` (Flink `KeyedProcessFunction`) implement the same alert rules. Both exist intentionally:
+`analysis/stream/price_alert_job.py` (Flink `KeyedProcessFunction`) is the single alert path. An earlier stateless Python version (`consumers/alert_consumer.py`, Phase 5) was removed once the Flink job covered the same rules — keeping two implementations of the same behaviour added churn without value.
 
-| | Python | Flink |
-|---|---|---|
-| State | none | per-symbol (debounce windows, EMAs, volatility bursts) |
-| Fault tolerance | none | checkpointing available |
-| When to use | simple threshold rules, fast iteration | stateful patterns, future production |
-
-Phase 7 introduced the Flink version to learn streaming-state patterns; the Python version stayed because it tells a simpler story in the code.
-
-See [services/FLINK.md](services/FLINK.md) §8 for the full comparison.
+Flink is the right home because future alert patterns (debounce windows, EMAs, volatility bursts) require **per-symbol state**, which a stateless loop can't express cleanly. The shared rule-evaluation function lives in `producers/utils.py::evaluate_rules` so the logic stays unit-testable without a JVM.
 
 ### 3.5 Why a standalone Spark cluster instead of local mode?
 
@@ -191,7 +165,7 @@ All Kafka messages share one JSON envelope (defined in `schemas/message.py`):
 | 2  | ✅ | Smoke producer + consumer | Kafka topics, producers, consumers |
 | 3  | ✅ | `stock_price_producer` — vnstock polling | Producer loop, serialisation, partition keys |
 | 4  | ✅ | `storage_consumer` — Kafka → MinIO Avro | Consumer groups, offset management, Avro |
-| 5  | ✅ | `alert_consumer` — threshold rules, same topic different group | Multiple consumer groups |
+| 5  | ✅ | `alert_consumer` — stateless Python alerter (superseded by Phase 7, since removed) | Multiple consumer groups |
 | 6  | ✅ | `crypto_price_producer` — CCXT/Binance polling | Multi-source ingestion, normalised envelope |
 | 7  | ✅ | `PriceAlertJob` — PyFlink DataStream + KeyedProcessFunction | Flink DataStream API, stateful processing |
 | 8  | ✅ | `ohlcv_daily_ingest` — Spark Docker cluster, S3A, derive OHLCV | Spark cluster mode, S3A connector |
