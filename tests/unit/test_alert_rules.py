@@ -1,6 +1,6 @@
 import pytest
 
-from producers.utils import evaluate_rules
+from producers.utils import evaluate_rules, validate_rules
 
 # ── fixtures / helpers ────────────────────────────────────────────────────────
 
@@ -100,3 +100,27 @@ def test_operator(op, threshold, price, should_fire):
         assert hits, f"{op} {threshold} vs {price} should have fired"
     else:
         assert hits == [], f"{op} {threshold} vs {price} should not have fired"
+
+
+# ── validate_rules ────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_validate_rules_keeps_valid_operators():
+    rules = [{"symbol": "*", "field": "pct_change", "operator": "<=", "threshold": -3.0, "message": "drop"}]
+    assert validate_rules(rules) == rules
+
+
+@pytest.mark.unit
+def test_validate_rules_drops_unknown_operator():
+    rules = [
+        {"symbol": "*", "field": "pct_change", "operator": "<=",  "threshold": -3.0, "message": "valid"},
+        {"symbol": "*", "field": "pct_change", "operator": "~~",  "threshold": -3.0, "message": "invalid"},
+    ]
+    result = validate_rules(rules)
+    assert len(result) == 1
+    assert result[0]["message"] == "valid"
+
+
+@pytest.mark.unit
+def test_validate_rules_empty_list():
+    assert validate_rules([]) == []

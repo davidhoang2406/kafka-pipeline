@@ -22,7 +22,7 @@ ALERTS_CONFIG = Path(__file__).parent.parent / "config" / "alerts.json"
 # the JAR is already in $FLINK_HOME/lib/ and Flink loads it automatically.
 _JAR = Path(__file__).parent.parent / "jars" / "flink-sql-connector-kafka-4.0.1-2.0.jar"
 
-from producers.utils import evaluate_rules, load_json_config
+from producers.utils import evaluate_rules, load_json_config, validate_rules
 
 
 def run() -> None:
@@ -41,7 +41,7 @@ def run() -> None:
             "Run via Docker instead:  make flink-build && make run-flink-alert"
         )
 
-    rules = load_json_config(ALERTS_CONFIG)
+    rules = validate_rules(load_json_config(ALERTS_CONFIG))
 
     # ── KeyedProcessFunction ──────────────────────────────────────────────────
     # Defined inside run() so it closes over `rules` — serialises correctly

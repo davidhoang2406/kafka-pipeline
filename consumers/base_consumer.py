@@ -19,7 +19,7 @@ class BaseConsumer:
             auto_offset_reset=auto_offset_reset,
             value_deserializer=lambda v: json.loads(v.decode("utf-8")),
             key_deserializer=lambda k: k.decode("utf-8") if k else None,
-            enable_auto_commit=True,
+            enable_auto_commit=False,
         )
 
     def messages(self):
@@ -30,6 +30,10 @@ class BaseConsumer:
         """Non-blocking poll — returns a flat list of messages, empty list on timeout."""
         records = self._consumer.poll(timeout_ms=timeout_ms)
         return [msg for batch in records.values() for msg in batch]
+
+    def commit(self) -> None:
+        """Synchronously commit offsets for all assigned partitions."""
+        self._consumer.commit()
 
     def close(self):
         self._consumer.close()
