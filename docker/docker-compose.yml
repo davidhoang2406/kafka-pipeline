@@ -207,7 +207,7 @@ services:
       MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
     volumes:
       - ..:/opt/project
-      - ../orchestration:/opt/dagster/app
+      - ../dagster:/opt/dagster/app
       - dagster_storage:/opt/dagster/dagster_home/storage
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -237,7 +237,7 @@ services:
       MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
     volumes:
       - ..:/opt/project
-      - ../orchestration:/opt/dagster/app
+      - ../dagster:/opt/dagster/app
       - dagster_storage:/opt/dagster/dagster_home/storage
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

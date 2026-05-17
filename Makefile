@@ -214,4 +214,4 @@ orchestration-logs: ## Tail Dagster webserver + daemon logs
 	$(COMPOSE) logs -f dagster-webserver dagster-daemon
 
 test-orchestration: ## Run Dagster asset unit tests (no Docker needed)
-	$(PYTHON) -m pytest orchestration/tests/ -v
+	$(PYTHON) -m pytest dagster/tests/ -v
