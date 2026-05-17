@@ -101,8 +101,20 @@ def run(target_date: str | None = None) -> None:
             .drop("_min_time")
         )
 
+        # Data quality: drop bars that violate OHLCV invariants before writing.
+        # Violations indicate upstream data issues (e.g., bad ticks, zero prices).
+        df_valid = df_ohlcv.filter(
+            (F.col("high") >= F.col("low")) &
+            (F.col("high") >= F.greatest("open", "close")) &
+            (F.col("low")  <= F.least("open", "close")) &
+            (F.col("volume") >= 0)
+        )
+        dropped = df_ohlcv.count() - df_valid.count()
+        if dropped:
+            log.warning("OHLCV quality check: dropped %d bars with invalid high/low/volume", dropped)
+
         # Spark writes all bars directly — no driver collect, no PyArrow serialisation
-        (df_ohlcv
+        (df_valid
          .write
          .mode("overwrite")
          .partitionBy("asset_class", "year", "month", "day")

@@ -1,6 +1,9 @@
 import json
+import logging
 import operator
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # ── Alert helpers ──────────────────────────────────────────────────────────────
 
@@ -51,6 +54,18 @@ def to_ts(v) -> str:
 def load_json_config(path: Path) -> dict:
     with open(path) as f:
         return json.load(f)
+
+
+def validate_rules(rules: list[dict]) -> list[dict]:
+    """Drop rules with unknown operators at load time so evaluate_rules never silently no-ops."""
+    valid = []
+    for rule in rules:
+        op = rule.get("operator")
+        if op not in ALERT_OPS:
+            log.warning("Skipping alert rule with unknown operator %r: %s", op, rule)
+            continue
+        valid.append(rule)
+    return valid
 
 
 def evaluate_rules(rules: list[dict], symbol: str, payload: dict, source: str = "") -> list[dict]:

@@ -1,4 +1,4 @@
-# Flink streaming job (Phase 8) that reads from stock.price.realtime and
+# Flink streaming job (Phase 7) that reads from stock.price.realtime and
 # crypto.price.realtime, partitions events by symbol via key_by, and evaluates
 # each tick against threshold rules in config/alerts.json using a KeyedProcessFunction.
 # Logs every tick at INFO and prints/logs triggered alerts at WARNING.
@@ -22,7 +22,7 @@ ALERTS_CONFIG = Path(__file__).parent.parent / "config" / "alerts.json"
 # the JAR is already in $FLINK_HOME/lib/ and Flink loads it automatically.
 _JAR = Path(__file__).parent.parent / "jars" / "flink-sql-connector-kafka-4.0.1-2.0.jar"
 
-from producers.utils import evaluate_rules
+from producers.utils import evaluate_rules, load_json_config, validate_rules
 
 
 def run() -> None:
@@ -41,8 +41,7 @@ def run() -> None:
             "Run via Docker instead:  make flink-build && make run-flink-alert"
         )
 
-    with open(ALERTS_CONFIG) as f:
-        rules = json.load(f)
+    rules = validate_rules(load_json_config(ALERTS_CONFIG))
 
     # ── KeyedProcessFunction ──────────────────────────────────────────────────
     # Defined inside run() so it closes over `rules` — serialises correctly

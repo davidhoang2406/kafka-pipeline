@@ -73,3 +73,43 @@ def test_should_not_flush_before_batch_or_interval():
     buf = _Buffer(_mock_store())
     buf.add(_msg("price.snapshot", price=1.0))
     assert buf.should_flush() is False
+
+
+# ── DLQ ───────────────────────────────────────────────────────────────────────
+
+@pytest.mark.unit
+def test_malformed_message_goes_to_dlq(monkeypatch):
+    """A message whose extractor raises must be written to dead-letter/, not buffered."""
+    store = _mock_store()
+    buf   = _Buffer(store)
+
+    # Force the extractor to raise
+    monkeypatch.setitem(
+        __import__("consumers.storage_consumer", fromlist=["_EXTRACTORS"])._EXTRACTORS,
+        "price.snapshot",
+        lambda m: (_ for _ in ()).throw(ValueError("bad field")),
+    )
+
+    buf.add(_msg("price.snapshot", price=1.0))
+
+    assert buf.total_rows() == 0
+    store._client.put_object.assert_called_once()
+    key_arg = store._client.put_object.call_args[0][1]
+    assert key_arg.startswith("dead-letter/price.snapshot/")
+
+
+@pytest.mark.unit
+def test_dlq_write_failure_does_not_propagate(monkeypatch):
+    """If the DLQ write itself fails, the consumer must not crash."""
+    store = _mock_store()
+    store._client.put_object.side_effect = Exception("MinIO down")
+    buf   = _Buffer(store)
+
+    monkeypatch.setitem(
+        __import__("consumers.storage_consumer", fromlist=["_EXTRACTORS"])._EXTRACTORS,
+        "price.snapshot",
+        lambda m: (_ for _ in ()).throw(ValueError("bad")),
+    )
+
+    buf.add(_msg("price.snapshot", price=1.0))  # must not raise
+    assert buf.total_rows() == 0

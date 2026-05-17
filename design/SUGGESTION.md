@@ -88,9 +88,9 @@ Correctness is fine, but these reduce robustness or maintainability.
 
 If a single malformed message causes `_EXTRACTORS[event_type](msg)` to raise, the entire batch silently fails to flush. A try/except around per-row extraction with a dead-letter path (e.g. a `price.snapshot.dlq` topic or a `dead-letter/` MinIO prefix) would prevent one bad message from dropping a whole batch.
 
-### 2.2 Alert rule evaluation is duplicated in two places
+### 2.2 Alert rule evaluation duplication — ✅ resolved
 
-`_check()` in `alert_consumer.py` and `PriceAlertFunction.process_element()` in `price_alert_job.py` implement the same rule-matching loop. Extracting a shared `evaluate_rules(rules, symbol, payload, source)` function into `producers/utils.py` (or a new `model/alerts.py`) removes the duplication.
+Previously `_check()` in `alert_consumer.py` and `PriceAlertFunction.process_element()` in `price_alert_job.py` implemented the same rule-matching loop. The shared logic now lives in `producers/utils.py::evaluate_rules`, and `consumers/alert_consumer.py` has been removed — `PriceAlertJob` is the only remaining alerter.
 
 ### 2.3 `SparkFactory` missing performance config
 
@@ -159,11 +159,9 @@ Fail the job on any critical check; log warnings without blocking.
 
 ### 3.3 Alert cooldown / deduplication
 
-Both `alert_consumer.py` and `PriceAlertJob` fire on every tick while a threshold is breached. A stock holding at -3% across ten 30-second polls generates 10 identical alerts.
+`PriceAlertJob` fires on every tick while a threshold is breached. A stock holding at -3% across ten 30-second polls generates 10 identical alerts.
 
-**Suggestion for `alert_consumer.py`:** Add an in-memory dict `{(symbol, rule_id): last_fired_ts}` and suppress re-fires within a configurable cooldown window (e.g. 5 minutes).
-
-**Suggestion for `PriceAlertJob`:** Use Flink `ValueState` to persist `last_fired_ts` per (symbol, rule) key. This is the natural next step from the planned `VolatilityBurstJob` (Phase 12) and teaches per-key state management in a real use case.
+**Suggestion:** Use Flink `ValueState` to persist `last_fired_ts` per (symbol, rule) key and suppress re-fires within a configurable cooldown window (e.g. 5 minutes). This is the natural next step from the planned `VolatilityBurstJob` (Phase 13) and teaches per-key state management in a real use case.
 
 ### 3.4 Protect raw data expiry with a pipeline completion marker
 

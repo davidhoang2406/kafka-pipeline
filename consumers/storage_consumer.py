@@ -1,6 +1,8 @@
 # Subscribes to Kafka price topics and persists messages to MinIO as partitioned Avro files.
 # Partition layout: {event_type}/asset_class={stock|crypto}/symbol={symbol}/year=/month=/day=/part-{ts}.avro
 # Batches writes (up to 500 rows or 30 s) to keep file sizes reasonable.
+# Malformed messages are routed to dead-letter/{event_type}/{ts}.json for replay.
+import json
 import logging
 import os
 import time
@@ -62,15 +64,26 @@ class _Buffer:
         self._rows: dict[tuple, list] = defaultdict(list)
         self._last_flush = time.monotonic()
 
+    def _to_dlq(self, msg: dict, reason: str) -> None:
+        ts_ms      = int(time.time() * 1000)
+        event_type = msg.get("event_type", "unknown")
+        key        = f"dead-letter/{event_type}/{ts_ms}.json"
+        try:
+            self._store.write_text(key, json.dumps({"reason": reason, "message": msg}, default=str))
+        except Exception:
+            log.error("DLQ write failed for message (event_type=%s symbol=%s)",
+                      event_type, msg.get("symbol"), exc_info=True)
+
     def add(self, msg: dict) -> None:
         event_type = msg.get("event_type")
         if event_type not in _EXTRACTORS:
             return
         try:
             row = _EXTRACTORS[event_type](msg)
-        except Exception:
-            log.warning("Dropping malformed message (event_type=%s symbol=%s)",
-                        event_type, msg.get("symbol"), exc_info=True)
+        except Exception as exc:
+            log.warning("Malformed message → DLQ (event_type=%s symbol=%s): %s",
+                        event_type, msg.get("symbol"), exc, exc_info=True)
+            self._to_dlq(msg, str(exc))
             return
         symbol     = msg.get("symbol", "UNKNOWN").replace("/", "-")
         ac         = asset_class(msg.get("source", ""))
@@ -117,3 +130,4 @@ def run() -> None:
                 buf.add(record.value)
             if buf.should_flush():
                 buf.flush()
+                consumer.commit()  # at-least-once: commit only after successful write

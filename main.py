@@ -12,8 +12,7 @@ def main():
     ohlcv_p.add_argument("--date", metavar="YYYY-MM-DD", help="Target date for ingest (default: today)")
     sub.add_parser("crypto-price-producer", help="Poll crypto exchange prices → Kafka (every 60 s)")
     sub.add_parser("storage-consumer",      help="Consume all topics and write to MinIO as Avro")
-    sub.add_parser("alert-consumer",        help="Consume price topic and fire threshold alerts")
-    sub.add_parser("flink-alert",           help="[Phase 8] Flink DataStream job: price alerts via KeyedProcessFunction")
+    sub.add_parser("flink-alert",           help="[Phase 7] Flink DataStream job: price alerts via KeyedProcessFunction")
     sub.add_parser("technical",             help="Run technical analysis report (SMA/RSI/MACD/BB)")
     sub.add_parser("digest",                help="Run daily market digest report (gainers/losers/volume)")
     sub.add_parser("screener",              help="Run fundamental screener report (P/E, D/E, EPS)")
@@ -66,9 +65,6 @@ def main():
         run()
     elif args.command == "storage-consumer":
         from consumers.storage_consumer import run
-        run()
-    elif args.command == "alert-consumer":
-        from consumers.alert_consumer import run
         run()
     elif args.command == "flink-alert":
         from analysis.stream.price_alert_job import run

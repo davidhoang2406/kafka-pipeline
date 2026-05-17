@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.backends.legacy:BuildBackend"
+
+[project]
+name = "dagster_project"
+version = "0.1.0"
+dependencies = [
+    "dagster==1.13.5",
+    "dagster-webserver==1.13.5",
+    "minio>=7.2",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["dagster_project*"]
+
+[tool.dagster]
+module_name = "dagster_project"

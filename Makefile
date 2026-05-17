@@ -1,19 +1,20 @@
 .PHONY: install uninstall topics-create minio-init storage-flush run run-smoke-producer run-smoke-consumer \
         run-stock-price-producer run-ohlcv-daily-ingest \
         run-crypto-price-producer \
-        run-storage-consumer run-alert-consumer \
+        run-storage-consumer \
         run-flink-alert \
         run-spark-technical run-digest run-screener \
         spark-build spark-history-server \
         jupyter jupyter-build \
-        test test-unit test-integration
+        dagster-build dagster-up dagster-down dagster-shell dagster-logs \
+        test test-unit test-integration test-dagster
 
 PYTHON  := .venv/bin/python
 PIP     := .venv/bin/pip
 COMPOSE := docker compose -f docker/docker-compose.yml
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark, Jupyter)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark, Jupyter, Dagster)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
@@ -21,7 +22,8 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
 	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
 	read -p "  Jupyter (JupyterLab at :8888)? [y/n] " jup; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
+	read -p "  Dagster (webserver + daemon at :3000)? [y/n] " dag; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ] && [ "$$dag" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
@@ -30,6 +32,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
 		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
 		if [ "$$jup" = "y" ]; then services="$$services jupyter"; fi; \
+		if [ "$$dag" = "y" ]; then services="$$services dagster-webserver dagster-daemon"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
 			$(COMPOSE) build flink-jobmanager flink-taskmanager; \
@@ -46,6 +49,10 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$jup" = "y" ]; then \
 			echo "Building Jupyter Docker image (downloads JARs + installs deps — takes a moment)..."; \
 			$(COMPOSE) build jupyter; \
+		fi; \
+		if [ "$$dag" = "y" ]; then \
+			echo "Building Dagster Docker image..."; \
+			$(COMPOSE) build dagster-webserver dagster-daemon; \
 		fi; \
 		echo "Starting:$$services"; \
 		$(COMPOSE) up -d $$services; \
@@ -75,7 +82,8 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
 	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
 	read -p "  Jupyter? [y/n] " jup; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
+	read -p "  Dagster (webserver + daemon, run history deleted)? [y/n] " dag; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ] && [ "$$dag" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		if [ "$$k" = "y" ]; then \
@@ -100,6 +108,11 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 		if [ "$$jup" = "y" ]; then \
 			echo "Removing Jupyter..."; \
 			$(COMPOSE) rm -sf jupyter; \
+		fi; \
+		if [ "$$dag" = "y" ]; then \
+			echo "Removing Dagster..."; \
+			$(COMPOSE) rm -sf dagster-webserver dagster-daemon; \
+			docker volume ls -q | grep dagster_storage | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		echo "Uninstall complete."; \
 	fi
@@ -161,9 +174,6 @@ run-crypto-price-producer:  ## Poll crypto exchange prices → Kafka (every 60 s
 run-storage-consumer: ## Kafka → MinIO (Avro)
 	$(PYTHON) main.py storage-consumer
 
-run-alert-consumer:   ## Real-time price threshold alerts
-	$(PYTHON) main.py alert-consumer
-
 run-flink-alert:      ## [Phase 8] Submit Flink price alert job to the Docker cluster
 	docker exec flink-jobmanager flink run --python /opt/project/analysis/stream/price_alert_job.py
 
@@ -197,3 +207,23 @@ test-unit:            ## Run unit tests only (no Docker needed)
 
 test-integration:     ## Run integration tests only (Docker must be running)
 	$(PYTHON) -m pytest -m integration
+
+# ── Orchestration (Dagster) ───────────────────────────────────────────────────
+
+dagster-build: ## Build Dagster Docker image (webserver + daemon)
+	$(COMPOSE) build dagster-webserver dagster-daemon
+
+dagster-up: ## Start Dagster webserver + daemon → http://localhost:3000
+	$(COMPOSE) up -d dagster-webserver dagster-daemon
+
+dagster-down: ## Stop Dagster webserver + daemon
+	$(COMPOSE) stop dagster-webserver dagster-daemon
+
+dagster-shell: ## Open a shell in the dagster-webserver container
+	docker exec -it dagster-webserver bash
+
+dagster-logs: ## Tail Dagster webserver + daemon logs
+	$(COMPOSE) logs -f dagster-webserver dagster-daemon
+
+test-dagster: ## Run Dagster asset unit tests (no Docker needed)
+	$(PYTHON) -m pytest dagster/tests/ -v

@@ -42,7 +42,7 @@ services:
         condition: service_healthy
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: minio
     ports:
       - "9000:9000"   # S3 API
@@ -77,6 +77,12 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   flink-taskmanager:
     build:
@@ -92,7 +98,8 @@ services:
     volumes:
       - ..:/opt/project
     depends_on:
-      - flink-jobmanager
+      flink-jobmanager:
+        condition: service_healthy
 
   spark-master:
     build:
@@ -183,7 +190,62 @@ services:
       spark-master:
         condition: service_healthy
 
+  dagster-webserver:
+    build:
+      context: ..
+      dockerfile: docker/dagster.Dockerfile
+    container_name: dagster-webserver
+    command: dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/dagster/app/workspace.yaml
+    ports:
+      - "3000:3000"   # Dagster UI → http://localhost:3000
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
+    volumes:
+      - ..:/opt/project
+      - ../dagster:/opt/dagster/app
+      - dagster_storage:/opt/dagster/dagster_home/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      minio:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/server_info')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  dagster-daemon:
+    build:
+      context: ..
+      dockerfile: docker/dagster.Dockerfile
+    container_name: dagster-daemon
+    command: dagster-daemon run -w /opt/dagster/app/workspace.yaml
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-market-data}
+      MINIO_ANALYSIS_BUCKET: ${MINIO_ANALYSIS_BUCKET:-market-analysis}
+    volumes:
+      - ..:/opt/project
+      - ../dagster:/opt/dagster/app
+      - dagster_storage:/opt/dagster/dagster_home/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      dagster-webserver:
+        condition: service_healthy
+
 volumes:
   kafka_data:
   minio_data:
   spark_logs:
+  dagster_storage:

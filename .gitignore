@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 reports/
 
+# Test
+.coverage
+
 # Environment
 .env
 
