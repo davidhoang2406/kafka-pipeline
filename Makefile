@@ -14,7 +14,7 @@ PIP     := .venv/bin/pip
 COMPOSE := docker compose -f docker/docker-compose.yml
 
 # ── Installation ──────────────────────────────────────────────────────────────
-install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark, Jupyter)
+install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, Spark, Jupyter, Dagster)
 	$(PIP) install -r requirements.txt
 	@echo "Select infrastructure to install:"
 	@read -p "  Kafka + Kafka UI? [y/n] " k; \
@@ -22,7 +22,8 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
 	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
 	read -p "  Jupyter (JupyterLab at :8888)? [y/n] " jup; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
+	read -p "  Dagster (webserver + daemon at :3000)? [y/n] " dag; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ] && [ "$$dag" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		services=""; \
@@ -31,6 +32,7 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$fl" = "y" ]; then services="$$services flink-jobmanager flink-taskmanager"; fi; \
 		if [ "$$sp" = "y" ]; then services="$$services spark-master spark-worker spark-history-server"; fi; \
 		if [ "$$jup" = "y" ]; then services="$$services jupyter"; fi; \
+		if [ "$$dag" = "y" ]; then services="$$services dagster-webserver dagster-daemon"; fi; \
 		if [ "$$fl" = "y" ]; then \
 			echo "Building PyFlink Docker image..."; \
 			$(COMPOSE) build flink-jobmanager flink-taskmanager; \
@@ -47,6 +49,10 @@ install: ## Interactively install selected infrastructure (Kafka, MinIO, Flink, 
 		if [ "$$jup" = "y" ]; then \
 			echo "Building Jupyter Docker image (downloads JARs + installs deps — takes a moment)..."; \
 			$(COMPOSE) build jupyter; \
+		fi; \
+		if [ "$$dag" = "y" ]; then \
+			echo "Building Dagster Docker image..."; \
+			$(COMPOSE) build dagster-webserver dagster-daemon; \
 		fi; \
 		echo "Starting:$$services"; \
 		$(COMPOSE) up -d $$services; \
@@ -76,7 +82,8 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 	read -p "  Flink (JobManager + TaskManager)? [y/n] " fl; \
 	read -p "  Spark (Master + Worker + History Server)? [y/n] " sp; \
 	read -p "  Jupyter? [y/n] " jup; \
-	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ]; then \
+	read -p "  Dagster (webserver + daemon, run history deleted)? [y/n] " dag; \
+	if [ "$$k" != "y" ] && [ "$$m" != "y" ] && [ "$$fl" != "y" ] && [ "$$sp" != "y" ] && [ "$$jup" != "y" ] && [ "$$dag" != "y" ]; then \
 		echo "Nothing selected — aborted."; \
 	else \
 		if [ "$$k" = "y" ]; then \
@@ -101,6 +108,11 @@ uninstall: ## Selectively stop and remove services (data is permanently deleted)
 		if [ "$$jup" = "y" ]; then \
 			echo "Removing Jupyter..."; \
 			$(COMPOSE) rm -sf jupyter; \
+		fi; \
+		if [ "$$dag" = "y" ]; then \
+			echo "Removing Dagster..."; \
+			$(COMPOSE) rm -sf dagster-webserver dagster-daemon; \
+			docker volume ls -q | grep dagster_storage | xargs docker volume rm 2>/dev/null || true; \
 		fi; \
 		echo "Uninstall complete."; \
 	fi
