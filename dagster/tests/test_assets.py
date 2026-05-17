@@ -62,9 +62,10 @@ def test_daily_partitions_timezone():
     assert daily_partitions.timezone == "Asia/Ho_Chi_Minh"
 
 
-def test_daily_partitions_start_date():
+def test_daily_partitions_includes_today():
     keys = daily_partitions.get_partition_keys()
     assert "2026-05-01" in keys
+    assert "2026-05-17" in keys   # end_offset=1 makes today available
 
 
 # ── Definitions smoke test ────────────────────────────────────────────────────
