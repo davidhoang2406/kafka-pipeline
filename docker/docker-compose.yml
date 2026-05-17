@@ -227,7 +227,7 @@ services:
       context: ..
       dockerfile: docker/dagster.Dockerfile
     container_name: dagster-daemon
-    command: dagster-daemon run
+    command: dagster-daemon run -w /opt/dagster/app/workspace.yaml
     environment:
       DAGSTER_HOME: /opt/dagster/dagster_home
       MINIO_ENDPOINT: http://minio:9000
