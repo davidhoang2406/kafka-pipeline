@@ -216,7 +216,7 @@ services:
       spark-master:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/server_info"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/server_info')"]
       interval: 15s
       timeout: 10s
       retries: 5
