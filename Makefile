@@ -6,7 +6,8 @@
         run-spark-technical run-digest run-screener \
         spark-build spark-history-server \
         jupyter jupyter-build \
-        test test-unit test-integration
+        orchestration-build orchestration-up orchestration-down orchestration-shell orchestration-logs \
+        test test-unit test-integration test-orchestration
 
 PYTHON  := .venv/bin/python
 PIP     := .venv/bin/pip
@@ -194,3 +195,23 @@ test-unit:            ## Run unit tests only (no Docker needed)
 
 test-integration:     ## Run integration tests only (Docker must be running)
 	$(PYTHON) -m pytest -m integration
+
+# ── Orchestration (Dagster) ───────────────────────────────────────────────────
+
+orchestration-build: ## Build Dagster Docker image (webserver + daemon)
+	$(COMPOSE) build dagster-webserver dagster-daemon
+
+orchestration-up: ## Start Dagster webserver + daemon → http://localhost:3000
+	$(COMPOSE) up -d dagster-webserver dagster-daemon
+
+orchestration-down: ## Stop Dagster webserver + daemon
+	$(COMPOSE) stop dagster-webserver dagster-daemon
+
+orchestration-shell: ## Open a shell in the dagster-webserver container
+	docker exec -it dagster-webserver bash
+
+orchestration-logs: ## Tail Dagster webserver + daemon logs
+	$(COMPOSE) logs -f dagster-webserver dagster-daemon
+
+test-orchestration: ## Run Dagster asset unit tests (no Docker needed)
+	$(PYTHON) -m pytest orchestration/tests/ -v
