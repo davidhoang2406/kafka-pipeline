@@ -36,11 +36,23 @@ class SparkClusterResource(ConfigurableResource):
     container_name: str = "spark-master"
 
     def submit(self, args: list[str]) -> None:
-        cmd = ["python", "/opt/project/main.py"] + args
-        log.info("Submitting to %s: %s", self.container_name, " ".join(cmd))
+        import shlex
+        # Mirror the Makefile's spark-submit invocation; MINIO_* vars are
+        # already set on spark-master by docker-compose so $VAR expands correctly.
+        bash_cmd = (
+            "PYTHONPATH=/opt/project "
+            "/opt/spark/bin/spark-submit "
+            "--master spark://spark-master:7077 "
+            "--conf spark.executorEnv.PYTHONPATH=/opt/project "
+            "--conf spark.executorEnv.MINIO_ENDPOINT=$MINIO_ENDPOINT "
+            "--conf spark.executorEnv.MINIO_ACCESS_KEY=$MINIO_ACCESS_KEY "
+            "--conf spark.executorEnv.MINIO_SECRET_KEY=$MINIO_SECRET_KEY "
+            f"/opt/project/main.py {shlex.join(args)}"
+        )
+        log.info("Submitting to %s: %s", self.container_name, bash_cmd)
         client    = docker_sdk.from_env()
         container = client.containers.get(self.container_name)
-        exit_code, output = container.exec_run(cmd, demux=False)
+        exit_code, output = container.exec_run(["bash", "-c", bash_cmd], demux=False)
         if output:
             log.info(output.decode(errors="replace"))
         if exit_code != 0:
