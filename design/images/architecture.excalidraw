@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "https://excalidraw.com",
+  "source": "https://excalidraw-jetbrains-plugin",
   "elements": [
     {
       "id": "ttl061",
@@ -13,13 +13,13 @@
       "strokeColor": "#1e1e1e",
       "backgroundColor": "transparent",
       "roundness": null,
-      "text": "Kafka Streaming Pipeline \u2014 System Architecture",
+      "text": "Kafka Streaming Pipeline — System Architecture",
       "fontSize": 26,
       "fontFamily": 5,
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": null,
-      "originalText": "Kafka Streaming Pipeline \u2014 System Architecture",
+      "originalText": "Kafka Streaming Pipeline — System Architecture",
       "lineHeight": 1.25,
       "autoResize": true,
       "angle": 0,
@@ -2018,8 +2018,8 @@
     {
       "id": "alb053",
       "type": "text",
-      "x": 775.0,
-      "y": 321.0,
+      "x": 775,
+      "y": 321,
       "width": 80,
       "height": 24,
       "strokeColor": "#1e1e1e",
@@ -2280,8 +2280,8 @@
     {
       "id": "alb059",
       "type": "text",
-      "x": 220.0,
-      "y": 506.0,
+      "x": 220,
+      "y": 506,
       "width": 80,
       "height": 24,
       "strokeColor": "#1e1e1e",
@@ -2361,9 +2361,7 @@
     }
   ],
   "appState": {
-    "gridSize": 20,
-    "gridStep": 5,
-    "gridModeEnabled": false,
+    "gridSize": null,
     "viewBackgroundColor": "#ffffff"
   },
   "files": {}
