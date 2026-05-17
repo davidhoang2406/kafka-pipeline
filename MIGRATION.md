@@ -15,8 +15,8 @@ data-platform/
 ├── platform-infra/          # Docker Compose, infrastructure-only
 ├── market-data-models/      # Shared schemas, Avro specs, Kafka topic contracts
 ├── market-data-ingestion/   # Producers + storage consumer (Kafka → MinIO)
-├── market-stream-analysis/  # Flink price alert job
-├── market-batch-analysis/   # Spark jobs + Dagster orchestration
+├── market-jobs/             # All jobs: Flink stream + Spark batch + Dagster orchestration
+├── market-notebooks/        # Jupyter notebooks for exploration and ad-hoc analysis
 └── kafka-pipeline/          # This repo — kept as reference, archived when done
 ```
 
@@ -96,49 +96,59 @@ tests/
 
 ---
 
-### `market-stream-analysis`
-Owns real-time processing. Currently just the Flink price alert job; expands as new stream jobs are added.
+### `market-jobs`
+Owns all data processing jobs — both stream and batch — and the Dagster orchestration layer that ties them together. Stream and batch jobs share the same MinIO/Kafka dependencies and evolve together as new jobs are added, so they live in one repo rather than being split by processing type.
 
 ```
-analysis/
+jobs/
   stream/
-    price_alert_job.py
-config/
-  alerts.json            # symlinked or copied from platform-infra
-main.py
-Makefile
-requirements.txt
-tests/
-```
-
-**Depends on:** `market-data-models`
-
----
-
-### `market-batch-analysis`
-Owns batch processing and orchestration. Spark jobs transform raw snapshots into OHLCV bars and technical indicators; Dagster schedules and monitors them.
-
-```
-analysis/
+    price_alert_job.py   # Flink: real-time price threshold alerts
   batch/
-    ohlcv_daily_ingest.py
-    technical_job.py
-    digest.py
-    screener.py
+    ohlcv_daily_ingest.py  # Spark: raw snapshots → OHLCV Parquet
+    technical_job.py       # Spark: SMA/RSI/MACD/Bollinger Bands
+    digest.py              # Spark: daily gainers/losers/volume summary
+    screener.py            # Spark: fundamental screener (P/E, D/E, EPS)
 model/
   spark.py               # SparkFactory context manager
-  minio_store.py         # copied or shared from ingestion
+  minio_store.py         # MinIO read/write (Parquet-focused)
 dagster/
   dagster_project/       # Partitions, assets, resources, schedules
   dagster.yaml
   workspace.yaml
-main.py
+config/
+  alerts.json            # Price alert threshold rules
+main.py                  # CLI entry points for all jobs
 Makefile
 requirements.txt
 tests/
 ```
 
 **Depends on:** `market-data-models`
+
+**Why merged:** stream and batch jobs share `minio_store.py`, `SparkFactory`, the same Dagster orchestration layer, and the same deployment environment (Flink + Spark + MinIO). Splitting them would mean duplicating shared model code and coordinating two repos for what is effectively one pipeline. As the platform grows, new jobs of either type simply land in `jobs/stream/` or `jobs/batch/`.
+
+---
+
+### `market-notebooks`
+Jupyter notebooks for exploration, ad-hoc analysis, and visualisation. This repo is intentionally separate from production code — notebooks are not tested or deployed; they read from MinIO and Kafka but never write to production sinks.
+
+```
+notebooks/
+  exploration/           # One-off investigation notebooks
+  reporting/             # Recurring analysis templates (OHLCV review, screener output)
+  onboarding/            # Walkthrough notebooks for new contributors
+docker/
+  jupyter.Dockerfile     # Inherited from platform-infra; kept here for notebook-specific deps
+requirements.txt         # Notebook-only deps (matplotlib, plotly, pandas, etc.)
+README.md
+```
+
+**Depends on:** `market-data-models` (for schema-aware reading), `platform-infra` (for the running MinIO + Kafka stack)
+
+**Rules for this repo:**
+- No notebook output is committed (strip cell outputs before push — enforce with `nbstripout` pre-commit hook)
+- Notebooks read data; they never write back to `market-data` or `market-analysis` buckets
+- Production-ready logic extracted from a notebook goes into `market-jobs`, not back into this repo
 
 ---
 
@@ -148,9 +158,10 @@ Three modules are currently used across all services:
 
 | Module | Used by | Resolution |
 |---|---|---|
-| `schemas/message.py` | ingestion, stream, batch | Move to `market-data-models` |
-| `model/minio_store.py` | ingestion, batch | Copy into each repo for now; extract later if they diverge |
-| `producers/utils.py` (coerce, evaluate_rules) | ingestion, stream | Split: coerce → `market-data-models`; alert logic → stream repo |
+| `schemas/message.py` | ingestion, jobs, notebooks | Move to `market-data-models` |
+| `model/minio_store.py` | ingestion, jobs | Copy into each repo; the two uses are diverging (Avro write vs Parquet read) |
+| `producers/utils.py` (coerce, evaluate_rules) | ingestion, jobs | Split: coerce → `market-data-models`; alert logic stays in `market-jobs` |
+| `docker/jupyter.Dockerfile` | notebooks | Move to `market-notebooks`; keep a reference copy in `platform-infra` |
 
 **Rule:** Do not share code by importing across repos at runtime. Each repo must be self-contained. If two repos need the same logic, copy it or extract it into `market-data-models`.
 
@@ -172,22 +183,22 @@ Three modules are currently used across all services:
 4. Smoke-test: run producer → Kafka → storage consumer → MinIO end-to-end
 5. Freeze this repo once green
 
-### Phase 3 — Extract stream analysis
-1. Create `market-stream-analysis` repo
-2. Move `analysis/stream/price_alert_job.py`
+### Phase 3 — Extract jobs
+1. Create `market-jobs` repo
+2. Move `analysis/stream/`, `analysis/batch/`, `model/spark.py`, `model/minio_store.py`, the full `dagster/` tree, and `config/alerts.json`
 3. Wire up `market-data-models`
-4. Submit the Flink job against the shared `platform-infra` compose stack
-5. Verify alerts fire correctly
+4. Verify stream: submit Flink price alert job, confirm alerts fire
+5. Verify batch: run `make dagster-up`, trigger `ohlcv_daily_bars` partition, confirm Parquet output in MinIO
 
-### Phase 4 — Extract batch analysis
-1. Create `market-batch-analysis` repo
-2. Move `analysis/batch/`, `model/spark.py`, the full `dagster/` tree
-3. Wire up `market-data-models`
-4. Run `make dagster-up`, trigger `ohlcv_daily_bars` partition — verify Spark job completes
+### Phase 4 — Extract notebooks
+1. Create `market-notebooks` repo
+2. Move `notebooks/` contents and `docker/jupyter.Dockerfile`
+3. Install `nbstripout` pre-commit hook to strip cell outputs on commit
+4. Verify: start Jupyter container, open an existing notebook, confirm MinIO and Kafka are reachable via `platform-infra`
 
 ### Phase 5 — Extract infrastructure
 1. Create `platform-infra` repo
-2. Move `docker/`, `config/`, top-level `Makefile` infra targets
+2. Move `docker/` (excluding `jupyter.Dockerfile`, which now lives in `market-notebooks`), `config/stocks.json`, `config/crypto.json`, top-level `Makefile` infra targets
 3. Each service repo updates its `README` with a pointer to `platform-infra` for local setup
 4. Archive `kafka-pipeline`
 
@@ -201,8 +212,8 @@ Splitting repos makes implicit contracts explicit. Each service boundary must de
 
 | Topic | Producer | Consumer(s) | Schema | SLA |
 |---|---|---|---|---|
-| `stock.price.realtime` | market-data-ingestion | market-stream-analysis, market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 60 s lag under normal load |
-| `crypto.price.realtime` | market-data-ingestion | market-stream-analysis, market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 90 s lag |
+| `stock.price.realtime` | market-data-ingestion | market-jobs (Flink), market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 60 s lag under normal load |
+| `crypto.price.realtime` | market-data-ingestion | market-jobs (Flink), market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 90 s lag |
 
 Consumers must tolerate unknown fields (forward compatibility). Producers must never remove or rename existing fields without a major version bump (backward compatibility).
 
@@ -210,8 +221,8 @@ Consumers must tolerate unknown fields (forward compatibility). Producers must n
 
 | Path prefix | Written by | Read by | Format | Freshness SLA |
 |---|---|---|---|---|
-| `price.snapshot/asset_class=*/...` | market-data-ingestion | market-batch-analysis | Avro | Daily, by 15:30 HCM |
-| `ohlcv.bar/asset_class=*/...` | market-batch-analysis | market-batch-analysis (technical), Jupyter | Parquet | Daily, by 17:00 HCM |
+| `price.snapshot/asset_class=*/...` | market-data-ingestion | market-jobs (Spark) | Avro | Daily, by 15:30 HCM |
+| `ohlcv.bar/asset_class=*/...` | market-jobs (Spark) | market-jobs (technical Spark job), market-notebooks | Parquet | Daily, by 17:00 HCM |
 
 These paths are the hand-off points between repos. They must not change without coordinating across all repos that read them.
 
@@ -264,12 +275,15 @@ Once split, tracing a bad technical indicator back to a raw price snapshot cross
 vnstock / Binance API
   └── stock-price-producer / crypto-price-producer   [market-data-ingestion]
         └── stock.price.realtime / crypto.price.realtime   [Kafka]
+              ├── price_alert_job (Flink)                  [market-jobs]
+              │     └── alert output (stdout / future sink)
               └── storage-consumer                         [market-data-ingestion]
                     └── price.snapshot/...                 [MinIO — Avro]
-                          └── ohlcv_daily_ingest           [market-batch-analysis]
+                          └── ohlcv_daily_ingest (Spark)   [market-jobs]
                                 └── ohlcv.bar/...          [MinIO — Parquet]
-                                      └── technical_job    [market-batch-analysis]
-                                            └── report output / Jupyter
+                                      ├── technical_job (Spark)  [market-jobs]
+                                      │     └── report output
+                                      └── Jupyter notebooks      [market-notebooks]
 ```
 
 When the platform grows, consider adding [OpenLineage](https://openlineage.io/) markers to the Spark jobs and Dagster assets. Both support it natively and it gives lineage visibility across repos without manual documentation.
@@ -288,13 +302,15 @@ market-data-ingestion
   └── on push: unit tests
   └── on release: integration test against platform-infra compose stack
 
-market-stream-analysis
-  └── on push: unit tests
-  └── on release: submit Flink job to test cluster, verify alert fires
+market-jobs
+  └── on push: unit tests (dagster/tests/, job unit tests)
+  └── on release:
+        stream — submit Flink job to test cluster, verify alert fires
+        batch  — run ohlcv_daily_ingest on a fixture date, assert Parquet output in MinIO
 
-market-batch-analysis
-  └── on push: unit tests (dagster/tests/)
-  └── on release: run ohlcv_daily_ingest on a fixture date, assert Parquet output
+market-notebooks
+  └── on push: nbstripout check (fail if any notebook has committed cell output)
+  └── no release pipeline — notebooks are not deployed
 ```
 
 **Dependency update bot:** when `market-data-models` publishes a new version, open an automated PR in each downstream repo to bump the pinned version. Review the diff before merging — this is where schema changes surface.
@@ -326,5 +342,11 @@ Ingestion writes Avro; batch reads Parquet. The two uses are already diverging. 
 **Why start with the models repo, not the infrastructure?**
 The schema is the contract. Every other split depends on having a stable, independently versioned definition of what a `PriceMessage` is. Getting infrastructure separation right first would leave the data contracts implicit and make the later splits harder.
 
-**Why keep Dagster in `market-batch-analysis` instead of its own repo?**
+**Why merge stream and batch into `market-jobs` instead of separate repos?**
+Stream (Flink) and batch (Spark) jobs share `minio_store.py`, `SparkFactory`, the same Dagster orchestration layer, and the same deployment environment. Splitting them saves nothing and doubles the coordination cost when adding a new job. The `jobs/stream/` vs `jobs/batch/` directory split inside the repo is enough to keep them distinct.
+
+**Why keep Dagster in `market-jobs` instead of its own repo?**
 Dagster directly submits Spark jobs in this setup. Separating them would require a cross-repo API. Once the platform grows to need an orchestration plane that spans multiple domains, Dagster (or a replacement) earns its own repo.
+
+**Why split notebooks into `market-notebooks`?**
+Notebooks are exploration artifacts, not production code. They have no tests, no deployment pipeline, and no SLA. Keeping them in the same repo as production jobs creates pressure to treat them like production code (or to ignore quality standards for them). A dedicated repo makes it clear: code that runs in production lives in `market-jobs`; code that only runs on your laptop lives in `market-notebooks`.
