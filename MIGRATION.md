@@ -12,11 +12,11 @@ The guiding principle: **get the data right first.** Infrastructure separation i
 
 ```
 data-platform/
-├── platform-infra/          # Docker Compose, infrastructure-only
-├── market-data-models/      # Shared schemas, Avro specs, Kafka topic contracts
-├── market-data-ingestion/   # Producers + storage consumer (Kafka → MinIO)
-├── market-jobs/             # All jobs: Flink stream + Spark batch + Dagster orchestration
-├── market-notebooks/        # Jupyter notebooks for exploration and ad-hoc analysis
+├── mekong-infra/          # Docker Compose, infrastructure-only
+├── mekong-data-models/      # Shared schemas, Avro specs, Kafka topic contracts
+├── mekong-ingestion/   # Producers + storage consumer (Kafka → MinIO)
+├── mekong-jobs/             # All jobs: Flink stream + Spark batch + Dagster orchestration
+├── mekong-notebooks/        # Jupyter notebooks for exploration and ad-hoc analysis
 └── kafka-pipeline/          # This repo — kept as reference, archived when done
 ```
 
@@ -24,7 +24,7 @@ data-platform/
 
 ## What Goes Where
 
-### `platform-infra`
+### `mekong-infra`
 Infrastructure only. No application code.
 
 ```
@@ -45,7 +45,7 @@ Every other repo points at this compose file to spin up the platform locally. In
 
 ---
 
-### `market-data-models`
+### `mekong-data-models`
 The shared contract between all services. Nothing here runs — it is imported as a package.
 
 ```
@@ -60,7 +60,7 @@ pyproject.toml
 This package is installed as a dependency in ingestion, stream, and batch repos. For now, install directly from GitHub:
 
 ```bash
-pip install git+https://github.com/<org>/market-data-models.git
+pip install git+https://github.com/<org>/mekong-data-models.git
 ```
 
 When the API stabilises, publish to PyPI or a private registry.
@@ -69,7 +69,7 @@ When the API stabilises, publish to PyPI or a private registry.
 
 ---
 
-### `market-data-ingestion`
+### `mekong-ingestion`
 Owns the "raw data in" path: polling market prices and landing them in Kafka, then draining Kafka into MinIO.
 
 ```
@@ -92,11 +92,11 @@ requirements.txt
 tests/
 ```
 
-**Depends on:** `market-data-models`
+**Depends on:** `mekong-data-models`
 
 ---
 
-### `market-jobs`
+### `mekong-jobs`
 Owns all data processing jobs — both stream and batch — and the Dagster orchestration layer that ties them together. Stream and batch jobs share the same MinIO/Kafka dependencies and evolve together as new jobs are added, so they live in one repo rather than being split by processing type.
 
 ```
@@ -123,13 +123,13 @@ requirements.txt
 tests/
 ```
 
-**Depends on:** `market-data-models`
+**Depends on:** `mekong-data-models`
 
 **Why merged:** stream and batch jobs share `minio_store.py`, `SparkFactory`, the same Dagster orchestration layer, and the same deployment environment (Flink + Spark + MinIO). Splitting them would mean duplicating shared model code and coordinating two repos for what is effectively one pipeline. As the platform grows, new jobs of either type simply land in `jobs/stream/` or `jobs/batch/`.
 
 ---
 
-### `market-notebooks`
+### `mekong-notebooks`
 Jupyter notebooks for exploration, ad-hoc analysis, and visualisation. This repo is intentionally separate from production code — notebooks are not tested or deployed; they read from MinIO and Kafka but never write to production sinks.
 
 ```
@@ -138,17 +138,17 @@ notebooks/
   reporting/             # Recurring analysis templates (OHLCV review, screener output)
   onboarding/            # Walkthrough notebooks for new contributors
 docker/
-  jupyter.Dockerfile     # Inherited from platform-infra; kept here for notebook-specific deps
+  jupyter.Dockerfile     # Inherited from mekong-infra; kept here for notebook-specific deps
 requirements.txt         # Notebook-only deps (matplotlib, plotly, pandas, etc.)
 README.md
 ```
 
-**Depends on:** `market-data-models` (for schema-aware reading), `platform-infra` (for the running MinIO + Kafka stack)
+**Depends on:** `mekong-data-models` (for schema-aware reading), `mekong-infra` (for the running MinIO + Kafka stack)
 
 **Rules for this repo:**
 - No notebook output is committed (strip cell outputs before push — enforce with `nbstripout` pre-commit hook)
 - Notebooks read data; they never write back to `market-data` or `market-analysis` buckets
-- Production-ready logic extracted from a notebook goes into `market-jobs`, not back into this repo
+- Production-ready logic extracted from a notebook goes into `mekong-jobs`, not back into this repo
 
 ---
 
@@ -158,48 +158,48 @@ Three modules are currently used across all services:
 
 | Module | Used by | Resolution |
 |---|---|---|
-| `schemas/message.py` | ingestion, jobs, notebooks | Move to `market-data-models` |
+| `schemas/message.py` | ingestion, jobs, notebooks | Move to `mekong-data-models` |
 | `model/minio_store.py` | ingestion, jobs | Copy into each repo; the two uses are diverging (Avro write vs Parquet read) |
-| `producers/utils.py` (coerce, evaluate_rules) | ingestion, jobs | Split: coerce → `market-data-models`; alert logic stays in `market-jobs` |
-| `docker/jupyter.Dockerfile` | notebooks | Move to `market-notebooks`; keep a reference copy in `platform-infra` |
+| `producers/utils.py` (coerce, evaluate_rules) | ingestion, jobs | Split: coerce → `mekong-data-models`; alert logic stays in `mekong-jobs` |
+| `docker/jupyter.Dockerfile` | notebooks | Move to `mekong-notebooks`; keep a reference copy in `mekong-infra` |
 
-**Rule:** Do not share code by importing across repos at runtime. Each repo must be self-contained. If two repos need the same logic, copy it or extract it into `market-data-models`.
+**Rule:** Do not share code by importing across repos at runtime. Each repo must be self-contained. If two repos need the same logic, copy it or extract it into `mekong-data-models`.
 
 ---
 
 ## Migration Phases
 
 ### Phase 1 — Extract the shared models (start here)
-1. Create `market-data-models` repo
+1. Create `mekong-data-models` repo
 2. Move `schemas/message.py`, `model/schemas.py`, coerce utilities from `producers/utils.py`
 3. Publish via `pip install git+https://...`
 4. Update imports in this repo to use the package — verify all tests still pass
 5. Tag this repo at `v1.0-pre-split` before touching anything else
 
 ### Phase 2 — Extract ingestion
-1. Create `market-data-ingestion` repo
+1. Create `mekong-ingestion` repo
 2. Copy `producers/`, `consumers/`, `db/`, `model/minio_store.py`, relevant `main.py` commands
-3. Wire up `market-data-models` as a dependency
+3. Wire up `mekong-data-models` as a dependency
 4. Smoke-test: run producer → Kafka → storage consumer → MinIO end-to-end
 5. Freeze this repo once green
 
 ### Phase 3 — Extract jobs
-1. Create `market-jobs` repo
+1. Create `mekong-jobs` repo
 2. Move `analysis/stream/`, `analysis/batch/`, `model/spark.py`, `model/minio_store.py`, the full `dagster/` tree, and `config/alerts.json`
-3. Wire up `market-data-models`
+3. Wire up `mekong-data-models`
 4. Verify stream: submit Flink price alert job, confirm alerts fire
 5. Verify batch: run `make dagster-up`, trigger `ohlcv_daily_bars` partition, confirm Parquet output in MinIO
 
 ### Phase 4 — Extract notebooks
-1. Create `market-notebooks` repo
+1. Create `mekong-notebooks` repo
 2. Move `notebooks/` contents and `docker/jupyter.Dockerfile`
 3. Install `nbstripout` pre-commit hook to strip cell outputs on commit
-4. Verify: start Jupyter container, open an existing notebook, confirm MinIO and Kafka are reachable via `platform-infra`
+4. Verify: start Jupyter container, open an existing notebook, confirm MinIO and Kafka are reachable via `mekong-infra`
 
 ### Phase 5 — Extract infrastructure
-1. Create `platform-infra` repo
-2. Move `docker/` (excluding `jupyter.Dockerfile`, which now lives in `market-notebooks`), `config/stocks.json`, `config/crypto.json`, top-level `Makefile` infra targets
-3. Each service repo updates its `README` with a pointer to `platform-infra` for local setup
+1. Create `mekong-infra` repo
+2. Move `docker/` (excluding `jupyter.Dockerfile`, which now lives in `mekong-notebooks`), `config/stocks.json`, `config/crypto.json`, top-level `Makefile` infra targets
+3. Each service repo updates its `README` with a pointer to `mekong-infra` for local setup
 4. Archive `kafka-pipeline`
 
 ---
@@ -212,8 +212,8 @@ Splitting repos makes implicit contracts explicit. Each service boundary must de
 
 | Topic | Producer | Consumer(s) | Schema | SLA |
 |---|---|---|---|---|
-| `stock.price.realtime` | market-data-ingestion | market-jobs (Flink), market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 60 s lag under normal load |
-| `crypto.price.realtime` | market-data-ingestion | market-jobs (Flink), market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 90 s lag |
+| `stock.price.realtime` | mekong-ingestion | mekong-jobs (Flink), mekong-ingestion (storage) | `PriceMessage` v1 (Avro) | < 60 s lag under normal load |
+| `crypto.price.realtime` | mekong-ingestion | mekong-jobs (Flink), mekong-ingestion (storage) | `PriceMessage` v1 (Avro) | < 90 s lag |
 
 Consumers must tolerate unknown fields (forward compatibility). Producers must never remove or rename existing fields without a major version bump (backward compatibility).
 
@@ -221,8 +221,8 @@ Consumers must tolerate unknown fields (forward compatibility). Producers must n
 
 | Path prefix | Written by | Read by | Format | Freshness SLA |
 |---|---|---|---|---|
-| `price.snapshot/asset_class=*/...` | market-data-ingestion | market-jobs (Spark) | Avro | Daily, by 15:30 HCM |
-| `ohlcv.bar/asset_class=*/...` | market-jobs (Spark) | market-jobs (technical Spark job), market-notebooks | Parquet | Daily, by 17:00 HCM |
+| `price.snapshot/asset_class=*/...` | mekong-ingestion | mekong-jobs (Spark) | Avro | Daily, by 15:30 HCM |
+| `ohlcv.bar/asset_class=*/...` | mekong-jobs (Spark) | mekong-jobs (technical Spark job), mekong-notebooks | Parquet | Daily, by 17:00 HCM |
 
 These paths are the hand-off points between repos. They must not change without coordinating across all repos that read them.
 
@@ -230,16 +230,16 @@ These paths are the hand-off points between repos. They must not change without 
 
 ## Schema Evolution Strategy
 
-`market-data-models` will be versioned with [semver](https://semver.org/). The rules:
+`mekong-data-models` will be versioned with [semver](https://semver.org/). The rules:
 
 - **Patch** (`0.1.x`) — bug fixes, docstring changes, no schema changes
 - **Minor** (`0.x.0`) — additive changes: new optional fields, new topic constants
 - **Major** (`x.0.0`) — breaking changes: renamed fields, removed fields, type changes
 
-Each service repo pins to a minor version (`market-data-models>=0.1,<0.2`) to get patches automatically but not breaking changes.
+Each service repo pins to a minor version (`mekong-data-models>=0.1,<0.2`) to get patches automatically but not breaking changes.
 
 **Adding a new field to `PriceMessage`:**
-1. Add the field as optional with a default in `market-data-models` (minor bump)
+1. Add the field as optional with a default in `mekong-data-models` (minor bump)
 2. Release a new version
 3. Update each service repo independently — ingestion first (producer), then consumers
 4. Old consumers reading messages without the new field get the default — no downtime
@@ -258,7 +258,7 @@ Quality checks must live in the service that owns the data, not in the service t
 
 | Check | Where it lives | Current state |
 |---|---|---|
-| Non-null price, volume ≥ 0 | market-data-ingestion (storage consumer) | Implemented via DLQ |
+| Non-null price, volume ≥ 0 | mekong-ingestion (storage consumer) | Implemented via DLQ |
 | OHLCV bar validity (high ≥ low, etc.) | market-batch-analysis (ohlcv_daily_ingest) | Implemented — invalid bars are dropped and logged |
 | Partition freshness | market-batch-analysis (Dagster observable asset) | Implemented via `price_snapshots` asset |
 | Technical indicator NaN rate | market-batch-analysis (technical_job) | Not yet implemented — add before migration |
@@ -273,17 +273,17 @@ Once split, tracing a bad technical indicator back to a raw price snapshot cross
 
 ```
 vnstock / Binance API
-  └── stock-price-producer / crypto-price-producer   [market-data-ingestion]
+  └── stock-price-producer / crypto-price-producer   [mekong-ingestion]
         └── stock.price.realtime / crypto.price.realtime   [Kafka]
-              ├── price_alert_job (Flink)                  [market-jobs]
+              ├── price_alert_job (Flink)                  [mekong-jobs]
               │     └── alert output (stdout / future sink)
-              └── storage-consumer                         [market-data-ingestion]
+              └── storage-consumer                         [mekong-ingestion]
                     └── price.snapshot/...                 [MinIO — Avro]
-                          └── ohlcv_daily_ingest (Spark)   [market-jobs]
+                          └── ohlcv_daily_ingest (Spark)   [mekong-jobs]
                                 └── ohlcv.bar/...          [MinIO — Parquet]
-                                      ├── technical_job (Spark)  [market-jobs]
+                                      ├── technical_job (Spark)  [mekong-jobs]
                                       │     └── report output
-                                      └── Jupyter notebooks      [market-notebooks]
+                                      └── Jupyter notebooks      [mekong-notebooks]
 ```
 
 When the platform grows, consider adding [OpenLineage](https://openlineage.io/) markers to the Spark jobs and Dagster assets. Both support it natively and it gives lineage visibility across repos without manual documentation.
@@ -292,28 +292,28 @@ When the platform grows, consider adding [OpenLineage](https://openlineage.io/) 
 
 ## Cross-Repo CI/CD
 
-Each repo gets its own GitHub Actions pipeline. The integration point is `market-data-models`.
+Each repo gets its own GitHub Actions pipeline. The integration point is `mekong-data-models`.
 
 ```
-market-data-models
+mekong-data-models
   └── on push: unit tests → publish to GitHub Packages (or PyPI)
 
-market-data-ingestion
+mekong-ingestion
   └── on push: unit tests
-  └── on release: integration test against platform-infra compose stack
+  └── on release: integration test against mekong-infra compose stack
 
-market-jobs
+mekong-jobs
   └── on push: unit tests (dagster/tests/, job unit tests)
   └── on release:
         stream — submit Flink job to test cluster, verify alert fires
         batch  — run ohlcv_daily_ingest on a fixture date, assert Parquet output in MinIO
 
-market-notebooks
+mekong-notebooks
   └── on push: nbstripout check (fail if any notebook has committed cell output)
   └── no release pipeline — notebooks are not deployed
 ```
 
-**Dependency update bot:** when `market-data-models` publishes a new version, open an automated PR in each downstream repo to bump the pinned version. Review the diff before merging — this is where schema changes surface.
+**Dependency update bot:** when `mekong-data-models` publishes a new version, open an automated PR in each downstream repo to bump the pinned version. Review the diff before merging — this is where schema changes surface.
 
 ---
 
@@ -342,11 +342,11 @@ Ingestion writes Avro; batch reads Parquet. The two uses are already diverging. 
 **Why start with the models repo, not the infrastructure?**
 The schema is the contract. Every other split depends on having a stable, independently versioned definition of what a `PriceMessage` is. Getting infrastructure separation right first would leave the data contracts implicit and make the later splits harder.
 
-**Why merge stream and batch into `market-jobs` instead of separate repos?**
+**Why merge stream and batch into `mekong-jobs` instead of separate repos?**
 Stream (Flink) and batch (Spark) jobs share `minio_store.py`, `SparkFactory`, the same Dagster orchestration layer, and the same deployment environment. Splitting them saves nothing and doubles the coordination cost when adding a new job. The `jobs/stream/` vs `jobs/batch/` directory split inside the repo is enough to keep them distinct.
 
-**Why keep Dagster in `market-jobs` instead of its own repo?**
+**Why keep Dagster in `mekong-jobs` instead of its own repo?**
 Dagster directly submits Spark jobs in this setup. Separating them would require a cross-repo API. Once the platform grows to need an orchestration plane that spans multiple domains, Dagster (or a replacement) earns its own repo.
 
-**Why split notebooks into `market-notebooks`?**
-Notebooks are exploration artifacts, not production code. They have no tests, no deployment pipeline, and no SLA. Keeping them in the same repo as production jobs creates pressure to treat them like production code (or to ignore quality standards for them). A dedicated repo makes it clear: code that runs in production lives in `market-jobs`; code that only runs on your laptop lives in `market-notebooks`.
+**Why split notebooks into `mekong-notebooks`?**
+Notebooks are exploration artifacts, not production code. They have no tests, no deployment pipeline, and no SLA. Keeping them in the same repo as production jobs creates pressure to treat them like production code (or to ignore quality standards for them). A dedicated repo makes it clear: code that runs in production lives in `mekong-jobs`; code that only runs on your laptop lives in `mekong-notebooks`.
