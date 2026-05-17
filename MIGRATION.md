@@ -193,6 +193,128 @@ Three modules are currently used across all services:
 
 ---
 
+## Data Contracts and SLAs
+
+Splitting repos makes implicit contracts explicit. Each service boundary must define what it promises to produce and what it requires to consume.
+
+### Kafka topic contracts
+
+| Topic | Producer | Consumer(s) | Schema | SLA |
+|---|---|---|---|---|
+| `stock.price.realtime` | market-data-ingestion | market-stream-analysis, market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 60 s lag under normal load |
+| `crypto.price.realtime` | market-data-ingestion | market-stream-analysis, market-data-ingestion (storage) | `PriceMessage` v1 (Avro) | < 90 s lag |
+
+Consumers must tolerate unknown fields (forward compatibility). Producers must never remove or rename existing fields without a major version bump (backward compatibility).
+
+### MinIO partition contracts
+
+| Path prefix | Written by | Read by | Format | Freshness SLA |
+|---|---|---|---|---|
+| `price.snapshot/asset_class=*/...` | market-data-ingestion | market-batch-analysis | Avro | Daily, by 15:30 HCM |
+| `ohlcv.bar/asset_class=*/...` | market-batch-analysis | market-batch-analysis (technical), Jupyter | Parquet | Daily, by 17:00 HCM |
+
+These paths are the hand-off points between repos. They must not change without coordinating across all repos that read them.
+
+---
+
+## Schema Evolution Strategy
+
+`market-data-models` will be versioned with [semver](https://semver.org/). The rules:
+
+- **Patch** (`0.1.x`) — bug fixes, docstring changes, no schema changes
+- **Minor** (`0.x.0`) — additive changes: new optional fields, new topic constants
+- **Major** (`x.0.0`) — breaking changes: renamed fields, removed fields, type changes
+
+Each service repo pins to a minor version (`market-data-models>=0.1,<0.2`) to get patches automatically but not breaking changes.
+
+**Adding a new field to `PriceMessage`:**
+1. Add the field as optional with a default in `market-data-models` (minor bump)
+2. Release a new version
+3. Update each service repo independently — ingestion first (producer), then consumers
+4. Old consumers reading messages without the new field get the default — no downtime
+
+**Renaming or removing a field:**
+1. Deprecate in a minor release (keep the old name, add the new one)
+2. Give all services a migration window (at least one sprint)
+3. Remove the old name in the next major release
+4. Update all service repos before cutting the major release
+
+---
+
+## Data Quality Across Service Boundaries
+
+Quality checks must live in the service that owns the data, not in the service that consumes it.
+
+| Check | Where it lives | Current state |
+|---|---|---|
+| Non-null price, volume ≥ 0 | market-data-ingestion (storage consumer) | Implemented via DLQ |
+| OHLCV bar validity (high ≥ low, etc.) | market-batch-analysis (ohlcv_daily_ingest) | Implemented — invalid bars are dropped and logged |
+| Partition freshness | market-batch-analysis (Dagster observable asset) | Implemented via `price_snapshots` asset |
+| Technical indicator NaN rate | market-batch-analysis (technical_job) | Not yet implemented — add before migration |
+
+Before migrating any service, ensure its quality checks are in place. A bug found in a monorepo is fixed in one PR. A bug found after splitting requires coordinating across repos.
+
+---
+
+## Data Lineage
+
+Once split, tracing a bad technical indicator back to a raw price snapshot crosses three repos. Document the lineage now while it is still easy to see:
+
+```
+vnstock / Binance API
+  └── stock-price-producer / crypto-price-producer   [market-data-ingestion]
+        └── stock.price.realtime / crypto.price.realtime   [Kafka]
+              └── storage-consumer                         [market-data-ingestion]
+                    └── price.snapshot/...                 [MinIO — Avro]
+                          └── ohlcv_daily_ingest           [market-batch-analysis]
+                                └── ohlcv.bar/...          [MinIO — Parquet]
+                                      └── technical_job    [market-batch-analysis]
+                                            └── report output / Jupyter
+```
+
+When the platform grows, consider adding [OpenLineage](https://openlineage.io/) markers to the Spark jobs and Dagster assets. Both support it natively and it gives lineage visibility across repos without manual documentation.
+
+---
+
+## Cross-Repo CI/CD
+
+Each repo gets its own GitHub Actions pipeline. The integration point is `market-data-models`.
+
+```
+market-data-models
+  └── on push: unit tests → publish to GitHub Packages (or PyPI)
+
+market-data-ingestion
+  └── on push: unit tests
+  └── on release: integration test against platform-infra compose stack
+
+market-stream-analysis
+  └── on push: unit tests
+  └── on release: submit Flink job to test cluster, verify alert fires
+
+market-batch-analysis
+  └── on push: unit tests (dagster/tests/)
+  └── on release: run ohlcv_daily_ingest on a fixture date, assert Parquet output
+```
+
+**Dependency update bot:** when `market-data-models` publishes a new version, open an automated PR in each downstream repo to bump the pinned version. Review the diff before merging — this is where schema changes surface.
+
+---
+
+## Environment Management
+
+Each repo supports three environments via environment variables. No code changes required between environments.
+
+| Variable | Local (dev) | Staging | Production |
+|---|---|---|---|
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | `kafka-staging:9092` | `kafka-prod:9092` |
+| `MINIO_ENDPOINT` | `http://localhost:9000` | `http://minio-staging:9000` | `https://s3.amazonaws.com` |
+| `MINIO_BUCKET` | `market-data` | `market-data-staging` | `market-data-prod` |
+
+Secrets (access keys, API tokens) are never committed. Use `.env` for local dev, GitHub Secrets for CI, and a secrets manager (Vault, AWS SSM) for production.
+
+---
+
 ## Decision Log
 
 **Why not a monorepo with packages?**
