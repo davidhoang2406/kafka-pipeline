@@ -1,6 +1,6 @@
 import logging
-import subprocess
 
+import docker as docker_sdk
 from dagster import ConfigurableResource
 from minio import Minio
 
@@ -36,12 +36,14 @@ class SparkClusterResource(ConfigurableResource):
     container_name: str = "spark-master"
 
     def submit(self, args: list[str]) -> None:
-        cmd = ["docker", "exec", self.container_name, "python", "/opt/project/main.py"] + args
-        log.info("Submitting: %s", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.stdout:
-            log.info(result.stdout)
-        if result.returncode != 0:
+        cmd = ["python", "/opt/project/main.py"] + args
+        log.info("Submitting to %s: %s", self.container_name, " ".join(cmd))
+        client    = docker_sdk.from_env()
+        container = client.containers.get(self.container_name)
+        exit_code, output = container.exec_run(cmd, demux=False)
+        if output:
+            log.info(output.decode(errors="replace"))
+        if exit_code != 0:
             raise RuntimeError(
-                f"Spark job failed (exit {result.returncode}):\n{result.stderr}"
+                f"Spark job failed (exit {exit_code}):\n{output.decode(errors='replace') if output else ''}"
             )

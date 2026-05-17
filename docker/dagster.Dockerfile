@@ -1,13 +1,9 @@
 FROM python:3.12-slim
 
-# Docker CLI: needed so SparkClusterResource can docker exec into spark-master
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io \
-    && rm -rf /var/lib/apt/lists/*
-
 RUN pip install --no-cache-dir \
     "dagster==1.13.5" \
     "dagster-webserver==1.13.5" \
+    "docker>=7.0" \
     "minio>=7.2" \
     "python-dotenv>=1.0"
 

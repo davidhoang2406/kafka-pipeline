@@ -45,11 +45,12 @@ def test_spark_resource_default_container():
 
 
 def test_spark_submit_raises_on_nonzero(monkeypatch):
-    import subprocess
-    monkeypatch.setattr(
-        subprocess, "run",
-        lambda *a, **kw: MagicMock(returncode=1, stdout="", stderr="job failed"),
-    )
+    import docker as docker_sdk
+    mock_container = MagicMock()
+    mock_container.exec_run.return_value = (1, b"job failed")
+    mock_client = MagicMock()
+    mock_client.containers.get.return_value = mock_container
+    monkeypatch.setattr(docker_sdk, "from_env", lambda: mock_client)
     r = SparkClusterResource(container_name="spark-master")
     with pytest.raises(RuntimeError, match="Spark job failed"):
         r.submit(["ohlcv-daily-ingest", "--date", "2026-05-16"])
